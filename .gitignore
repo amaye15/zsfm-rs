@@ -1,0 +1,44 @@
+# Rust build artifacts
+target/
+**/.cargo/
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+.eggs/
+
+# Model weights (large binary files)
+*.gguf
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.bin
+
+# Benchmark cache (auto-regenerated)
+benchmark/.bench_cache.json
+
+# Large dataset files
+benchmark/data/traffic_h1.csv
+
+# External Python upstream repos (cloned reference copies, not our code)
+chronos-v2/chronos-forecasting/
+timesfm-v2.5/timesfm/
+toto-v2/toto/
+timer-v3/Large-Time-Series-Model/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Claude Code local settings
+.claude/
+
+# Hugging Face
+hf_openapi.md

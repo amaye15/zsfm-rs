@@ -1,0 +1,11 @@
+[project]
+name = "lag-llama-v1-env"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = ["lag-llama", "safetensors"]
+
+[tool.uv.sources]
+lag-llama = { git = "https://github.com/time-series-foundation-models/lag-llama" }
+
+[tool.uv]
+package = false

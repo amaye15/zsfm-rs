@@ -1,0 +1,6 @@
+/target
+/models
+/gguf
+/.venv
+/toto
+*.gguf

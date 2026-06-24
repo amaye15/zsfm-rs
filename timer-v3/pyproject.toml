@@ -1,0 +1,21 @@
+[project]
+name = "timer-v3-env"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "einops>=0.4.0",
+    "matplotlib>=3.7.0",
+    "numpy>=1.26.0",
+    "pandas>=2.0.0",
+    "patool>=1.12",
+    "scikit-learn>=1.2.2",
+    "scipy>=1.10.1",
+    "sktime>=0.16.1",
+    "sympy>=1.11.1",
+    "torch>=2.0.1",
+    "tqdm>=4.64.1",
+    "transformers>=4.40.1",
+]
+
+[tool.uv]
+package = false

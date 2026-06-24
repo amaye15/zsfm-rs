@@ -1,0 +1,11 @@
+[project]
+name = "moment-v1-env"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = ["momentfm"]
+
+[tool.uv.sources]
+momentfm = { git = "https://github.com/moment-timeseries-foundation-model/moment" }
+
+[tool.uv]
+package = false

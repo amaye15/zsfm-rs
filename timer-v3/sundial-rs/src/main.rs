@@ -71,6 +71,10 @@ enum Command {
         /// Path to the GGUF file.
         #[arg(long)]
         gguf: PathBuf,
+        /// Override the GGUF ODE step count (default: use model metadata, typically 50).
+        /// 10–20 steps recommended; latency scales linearly with this value.
+        #[arg(long)]
+        steps: Option<u32>,
     },
     /// Print tensor names found in a GGUF file.
     InspectTensors {
@@ -104,7 +108,7 @@ async fn main() -> Result<()> {
             convert(&model, &files, &config, &ConvertOptions { output_dtype }, &output)?;
         }
 
-        Command::Infer { gguf } => {
+        Command::Infer { gguf, steps } => {
             use std::io::Read;
             let mut buf = String::new();
             std::io::stdin().read_to_string(&mut buf).context("read stdin")?;
@@ -115,7 +119,7 @@ async fn main() -> Result<()> {
             let device = candle_core::Device::Cpu;
 
             eprintln!("Loading model from {} …", gguf.display());
-            let m = SundialModel::load(&gguf, &device)?;
+            let m = SundialModel::load(&gguf, &device, steps.map(|s| s as usize))?;
             eprintln!("Model loaded.");
 
             let mut fc_choices = Vec::new();

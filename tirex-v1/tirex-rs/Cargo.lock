@@ -1928,6 +1928,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "simdeez"
+version = "3.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "35bc92272e09cdb506befe0c48f5f865fdda52e77bbe1738f74bed79f29c4733"
+dependencies = [
+ "cfg-if",
+ "paste",
+]
+
+[[package]]
 name = "slab"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2114,6 +2124,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "simdeez",
  "tokio",
  "tokio-util",
 ]

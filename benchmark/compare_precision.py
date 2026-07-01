@@ -98,6 +98,24 @@ MODELS = [
         "extra":    ["--model", "22m", "--dtype", "{dtype}"],
         "gguf_arg": None,  # toto script ignores --gguf, uses --model/--dtype
     },
+    {
+        "name":     "tirex",
+        "dir":      "tirex-v1/tirex-rs",
+        "project":  "tirex-v1/tirex-rs",
+        "script":   "scripts/compare_python.py",
+        "ggufs":    {"f32": "gguf/tirex-f32.gguf", "f16": "gguf/tirex-f16.gguf", "q8": "gguf/tirex-q8.gguf"},
+        "extra":    ["--horizon", "{horizon}"],
+        "gguf_arg": "--gguf",
+    },
+    {
+        "name":     "flowstate",
+        "dir":      "flowstate-r1/flowstate-r1-rs",
+        "project":  "flowstate-r1",
+        "script":   "scripts/compare_python.py",
+        "ggufs":    {"f32": "gguf/flowstate-r1-f32.gguf", "f16": "gguf/flowstate-r1-f16.gguf", "q8": "gguf/flowstate-r1-q8.gguf"},
+        "extra":    ["--horizon", "{horizon}"],
+        "gguf_arg": "--gguf",
+    },
 ]
 
 

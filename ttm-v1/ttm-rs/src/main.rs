@@ -42,7 +42,7 @@ enum Command {
     Convert {
         #[arg(short, long, default_value = "ibm-granite/granite-timeseries-ttm-r2")]
         model: String,
-        #[arg(short, long, default_value = "gguf/ttm-f16.gguf")]
+        #[arg(short, long, default_value = "gguf/ttm-f32.gguf")]
         output: PathBuf,
         #[arg(long, default_value = "f32")]
         dtype: DtypeArg,
@@ -59,7 +59,7 @@ enum Command {
     /// Outputs a JSON forecast in OpenAI-compatible format.
     Infer {
         /// Path to the GGUF file.
-        #[arg(short, long, default_value = "gguf/ttm-f16.gguf")]
+        #[arg(short, long, default_value = "gguf/ttm-f32.gguf")]
         gguf: PathBuf,
         /// Path to config.json (original HuggingFace model).
         #[arg(long, default_value = "models/config.json")]

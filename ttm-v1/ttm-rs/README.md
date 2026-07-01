@@ -1,19 +1,27 @@
 ---
 license: mit
 library_name: gguf
+pipeline_tag: time-series-forecasting
+language:
+  - en
+base_model: ibm-granite/granite-timeseries-ttm-r2
+base_model_relation: quantized
+quantized_by: amaye15
 tags:
   - gguf
   - time-series
   - forecasting
+  - zero-shot
+  - mlp-mixer
   - rust
-base_model: ibm-granite/granite-timeseries-ttm-r2
+inference: false
 ---
 
 # ttm-rs
 
 Pure Rust converter and inference engine for [ibm-granite/granite-timeseries-ttm-r2](https://huggingface.co/ibm-granite/granite-timeseries-ttm-r2).
 
-Produces GGUF v3 files and runs native forecasting — no Python required.
+Pre-converted GGUF files are available at [amaye15/ttm-gguf](https://huggingface.co/amaye15/ttm-gguf). Produces GGUF v3 files and runs native forecasting — no Python required.
 
 ## Build
 

@@ -54,17 +54,18 @@ enum Command {
     },
     /// Run TiRex forecasting from a GGUF file.
     ///
-    /// Reads context values as a comma-separated list and outputs JSON forecasts.
+    /// Single-context mode: pass --data as comma-separated float values.
+    /// Batch mode: omit --data; reads {"context": [[...], ...], "horizon": N} from stdin.
     Infer {
         #[arg(short, long, default_value = "gguf/tirex-f32.gguf")]
         gguf: PathBuf,
-        /// Comma-separated context values.
+        /// Comma-separated context values (single-context mode).
         #[arg(long)]
-        data: String,
-        /// Number of future steps to forecast.
+        data: Option<String>,
+        /// Number of future steps to forecast (single-context mode; batch reads from JSON).
         #[arg(long, default_value = "32")]
         horizon: usize,
-        /// Output all quantiles in addition to the median.
+        /// Output all quantiles in addition to the median (single-context mode only).
         #[arg(long)]
         all_outputs: bool,
     },
@@ -108,30 +109,79 @@ async fn main() -> anyhow::Result<()> {
         }
 
         Command::Infer { gguf, data, horizon, all_outputs } => {
-            let context: Vec<f32> = data
-                .split(',')
-                .map(|s| s.trim().parse::<f32>().context("parse context value"))
-                .collect::<anyhow::Result<_>>()?;
-            anyhow::ensure!(!context.is_empty(), "context must not be empty");
-
             let config = TiRexConfig::default_from_ckpt();
             eprintln!("Loading model from {} …", gguf.display());
             let model = TiRexModel::load(&gguf, config.clone()).context("load model")?;
 
-            let (quantiles, mean) = model.forecast(&context, horizon).context("forecast")?;
+            if let Some(data_str) = data {
+                // ── Single-context mode (--data CSV) ──────────────────────────
+                let context: Vec<f32> = data_str
+                    .split(',')
+                    .map(|s| s.trim().parse::<f32>().context("parse context value"))
+                    .collect::<anyhow::Result<_>>()?;
+                anyhow::ensure!(!context.is_empty(), "context must not be empty");
 
-            let mut q_map: BTreeMap<String, Vec<f32>> = BTreeMap::new();
-            if all_outputs {
-                for (i, q) in config.quantiles.iter().enumerate() {
-                    q_map.insert(format!("q{:.1}", q), quantiles[i].clone());
+                let (quantiles, mean) = model.forecast(&context, horizon).context("forecast")?;
+
+                let mut q_map: BTreeMap<String, Vec<f32>> = BTreeMap::new();
+                if all_outputs {
+                    for (i, q) in config.quantiles.iter().enumerate() {
+                        q_map.insert(format!("{q:.2}"), quantiles[i].clone());
+                    }
                 }
-            }
+                println!("{}", forecast_json("tirex", context.len(), horizon, vec![(mean, q_map)])?);
+            } else {
+                // ── Batch mode (stdin JSON) ────────────────────────────────────
+                use std::io::Read;
+                let mut buf = String::new();
+                std::io::stdin().read_to_string(&mut buf).context("read stdin")?;
+                let req: serde_json::Value = serde_json::from_str(&buf).context("parse JSON input")?;
+                let contexts = parse_contexts(req["context"].clone())?;
+                let batch_horizon: usize = req["horizon"]
+                    .as_u64()
+                    .context("horizon must be a positive integer")? as usize;
 
-            println!("{}", forecast_json("tirex", context.len(), horizon, vec![(mean, q_map)])?);
+                let mut fc_choices = Vec::new();
+                let total_ctx: usize = contexts.iter().map(|c| c.len()).sum();
+                for ctx in &contexts {
+                    anyhow::ensure!(!ctx.is_empty(), "context series must not be empty");
+                    let (quantiles, mean) = model.forecast(ctx, batch_horizon).context("forecast")?;
+                    let mut q_map: BTreeMap<String, Vec<f32>> = BTreeMap::new();
+                    for (i, q) in config.quantiles.iter().enumerate() {
+                        q_map.insert(format!("{q:.2}"), quantiles[i].clone());
+                    }
+                    fc_choices.push((mean, q_map));
+                }
+                println!("{}", forecast_json("tirex", total_ctx, batch_horizon, fc_choices)?);
+            }
         }
     }
 
     Ok(())
+}
+
+fn parse_contexts(val: serde_json::Value) -> anyhow::Result<Vec<Vec<f32>>> {
+    match val {
+        serde_json::Value::Array(arr) if arr.is_empty() => {
+            anyhow::bail!("context must be a non-empty array")
+        }
+        serde_json::Value::Array(arr) => {
+            if arr.first().map(|v| v.is_array()).unwrap_or(false) {
+                arr.into_iter()
+                    .enumerate()
+                    .map(|(i, v)| {
+                        serde_json::from_value::<Vec<f32>>(v)
+                            .with_context(|| format!("context[{i}] must be an array of numbers"))
+                    })
+                    .collect()
+            } else {
+                let ctx = serde_json::from_value::<Vec<f32>>(serde_json::Value::Array(arr))
+                    .context("context must be a JSON array of numbers")?;
+                Ok(vec![ctx])
+            }
+        }
+        _ => anyhow::bail!("context must be a JSON array"),
+    }
 }
 
 fn forecast_json(

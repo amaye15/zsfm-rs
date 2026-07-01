@@ -1,19 +1,28 @@
 ---
 license: mit
 library_name: gguf
+pipeline_tag: time-series-forecasting
+language:
+  - en
+base_model: thuml/sundial-base-128m
+base_model_relation: quantized
+quantized_by: amaye15
 tags:
   - gguf
   - time-series
   - forecasting
+  - zero-shot
+  - flow-matching
+  - transformer
   - rust
-base_model: thuml/sundial-base-128m
+inference: false
 ---
 
 # sundial-rs
 
 Pure Rust converter and inference engine for [thuml/sundial-base-128m](https://huggingface.co/thuml/sundial-base-128m).
 
-Produces GGUF v3 files and runs native forecasting — no Python required.
+Pre-converted GGUF files are available at [amaye15/sundial-gguf](https://huggingface.co/amaye15/sundial-gguf). Produces GGUF v3 files and runs native forecasting — no Python required.
 
 ## Build
 
@@ -58,7 +67,7 @@ Print all tensor names and shapes from a GGUF file:
 
 ## Infer
 
-Run forecasting from comma-separated context values:
+Run forecasting from stdin JSON:
 
 ```bash
 echo '{"context": [1.0, 1.2, 1.5, 1.3, 1.8, 2.0, 1.9, 2.1], "horizon": 96}' \

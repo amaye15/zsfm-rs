@@ -201,7 +201,7 @@ impl TimesFMModel {
             &content, &mut reader, "out_point", D_MODEL, D_MODEL, false, &device,
         )?;
 
-        let rope = RopeCache::new(HEAD_DIM, MAX_SEQ, ROPE_THETA);
+        let rope = RopeCache::new(HEAD_DIM, MAX_SEQ, ROPE_THETA, &device)?;
 
         Ok(Self { device, rope, tokenizer, blocks, out_point, causal_mask_cache: Mutex::new(HashMap::new()) })
     }
@@ -395,12 +395,12 @@ impl TimesFMModel {
         let cached_len = rope_offset;
         let decode_mask = make_decode_mask(M_PATCHES, cached_len, &self.device)?;
         for (li, block) in self.blocks.iter().enumerate() {
+            // decode_block_kv returns the extended K/V (old cache + new M_PATCHES).
+            // Store directly — no second Tensor::cat needed.
             let (h_out, k_new, v_new) =
                 self.decode_block_kv(hidden, block, &kv_cache[li], rope_offset, &decode_mask)?;
             hidden = h_out;
-            let k_full = Tensor::cat(&[&kv_cache[li].0, &k_new], 2)?;
-            let v_full = Tensor::cat(&[&kv_cache[li].1, &v_new], 2)?;
-            kv_cache[li] = (k_full, v_full);
+            kv_cache[li] = (k_new, v_new);
         }
         let out_seq = hidden.squeeze(0)?;
         forward_residual_block(&out_seq, &self.out_point, false)
@@ -452,7 +452,9 @@ impl TimesFMModel {
         let k = k.permute([0, 2, 1, 3])?.contiguous()?;
         let v = v.permute([0, 2, 1, 3])?.contiguous()?;
 
-        let k_full = Tensor::cat(&[&cache.0, &k], 2)?;    // [1, N_HEADS, cached+M, HEAD_DIM]
+        // Extend cache: [1, N_HEADS, cached+M, HEAD_DIM].
+        // Return k_full/v_full so the caller can store them directly without a second cat.
+        let k_full = Tensor::cat(&[&cache.0, &k], 2)?;
         let v_full = Tensor::cat(&[&cache.1, &v], 2)?;
 
         let scores = q.matmul(&k_full.transpose(D::Minus1, D::Minus2)?)?;
@@ -460,7 +462,7 @@ impl TimesFMModel {
         let attn_w = candle_nn::ops::softmax(&scores, D::Minus1)?;
         let ctx = attn_w.matmul(&v_full)?;
         let ctx = ctx.permute([0, 2, 1, 3])?.contiguous()?.reshape((1, M_PATCHES, D_MODEL))?;
-        Ok((linear(&ctx, &w.out_w, None)?, k, v))
+        Ok((linear(&ctx, &w.out_w, None)?, k_full, v_full))
     }
 
     fn forward_ffn(&self, x: Tensor, w: &FfnW) -> Result<Tensor> {

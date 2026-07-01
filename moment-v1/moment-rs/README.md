@@ -1,19 +1,28 @@
 ---
 license: mit
 library_name: gguf
+pipeline_tag: time-series-forecasting
+language:
+  - en
+base_model: moment-research/MOMENT-1-large
+base_model_relation: quantized
+quantized_by: amaye15
 tags:
   - gguf
   - time-series
   - forecasting
+  - zero-shot
+  - transformer
+  - masked-encoder
   - rust
-base_model: moment-research/MOMENT-1-large
+inference: false
 ---
 
 # moment-rs
 
 Pure Rust converter and inference engine for [moment-research/MOMENT-1-large](https://huggingface.co/moment-research/MOMENT-1-large).
 
-Produces GGUF v3 files and runs native forecasting — no Python required.
+Pre-converted GGUF files are available at [amaye15/moment-gguf](https://huggingface.co/amaye15/moment-gguf). Produces GGUF v3 files and runs native forecasting — no Python required.
 
 ## Build
 
@@ -58,7 +67,7 @@ Print all tensor names and shapes from a `.safetensors` checkpoint:
 
 ## Infer
 
-Run forecasting from comma-separated context values:
+Run forecasting from stdin JSON:
 
 ```bash
 echo '{"context": [1.0, 1.2, 1.5, 1.3, 1.8, 2.0, 1.9, 2.1], "horizon": 96}' \
@@ -85,9 +94,10 @@ Output is JSON in an OpenAI-compatible forecast format:
 }
 ```
 
-**Batch inference** — pass multiple series as a nested array to get one `Choice` per series:
+**Batch / Multivariate inference** — Moment is channel-independent: each variate is encoded as an independent series. Pass a batch of univariate series to get one `Choice` per series, or use the batch mode to handle multiple variates of a multivariate dataset by submitting each variate as a separate item:
 
 ```bash
+# Two independent series — one Choice each
 echo '{"context": [[1.0, 1.2, 1.5], [2.0, 2.2, 2.5]], "horizon": 96}' \
   | ./target/release/moment-rs infer --gguf gguf/moment-f16.gguf
 ```

@@ -79,6 +79,7 @@ MODELS = {
     "sundial": {
         "bin":    ROOT / "timer-v3/sundial-rs/target/release/sundial-rs",
         "gguf":   ROOT / "timer-v3/sundial-rs/gguf/sundial-f32.gguf",
+        "steps":  10,  # 10 Heun steps beats 50-step default on both speed and MAE
     },
     "ttm": {
         "bin":    ROOT / "ttm-v1/ttm-rs/target/release/ttm-rs",
@@ -105,6 +106,10 @@ MODELS = {
         "bin":    ROOT / "flowstate-r1/flowstate-r1-rs/target/release/flowstate-r1-rs",
         "gguf":   ROOT / "flowstate-r1/flowstate-r1-rs/gguf/flowstate-r1-f32.gguf",
         "config": ROOT / "flowstate-r1/flowstate-r1-rs/models/config.json",
+    },
+    "tirex": {
+        "bin":  ROOT / "tirex-v1/tirex-rs/target/release/tirex-rs",
+        "gguf": ROOT / "tirex-v1/tirex-rs/gguf/tirex-f32.gguf",
     },
 }
 
@@ -158,12 +163,16 @@ def load_series(dataset_name: str) -> np.ndarray:
 # Batch inference
 # ---------------------------------------------------------------------------
 
-def _cmd_for_model(model_name: str) -> list[str]:
+def _cmd_for_model(model_name: str, sundial_steps: int | None = None) -> list[str]:
     """Build the infer subcommand for a given model."""
     cfg = MODELS[model_name]
     cmd = [str(cfg["bin"]), "infer", "--gguf", str(cfg["gguf"])]
     if "config" in cfg:
         cmd += ["--config", str(cfg["config"])]
+    if model_name == "sundial":
+        steps = sundial_steps if sundial_steps is not None else cfg.get("steps")
+        if steps is not None:
+            cmd += ["--steps", str(steps)]
     return cmd
 
 
@@ -174,6 +183,7 @@ def collect_windows(
     context_len: int,
     horizon: int,
     n_windows: int,
+    sundial_steps: int | None = None,
 ) -> tuple[list, float, int, list]:
     """
     Run all rolling windows as a single batch inference call.
@@ -206,7 +216,7 @@ def collect_windows(
         "context": [ctx.tolist() for _, ctx, _ in valid],
         "horizon": horizon,
     })
-    cmd = _cmd_for_model(model_name)
+    cmd = _cmd_for_model(model_name, sundial_steps=sundial_steps)
 
     t0 = time.perf_counter()
     try:
@@ -236,9 +246,9 @@ def collect_windows(
             errors += 1
             continue
         quants = fc.get("quantiles", {})
-        if "0.1" in quants and "0.9" in quants:
+        if "0.10" in quants and "0.90" in quants:
             unc = float(np.mean(
-                np.array(quants["0.9"][:horizon]) - np.array(quants["0.1"][:horizon])
+                np.array(quants["0.90"][:horizon]) - np.array(quants["0.10"][:horizon])
             ))
         else:
             unc = float("nan")
@@ -448,7 +458,7 @@ _WEIGHT_METHODS = {"weighted", "softmax"}
 def label(models: tuple[str, ...], method: str) -> str:
     abbrev = {"toto": "T", "chronos": "C", "timesfm": "F", "sundial": "S",
               "ttm": "K", "lag_llama": "L", "moment": "M", "moirai": "O", "moirai2": "P",
-              "flowstate": "W"}
+              "flowstate": "W", "tirex": "X"}
     parts  = "".join(abbrev.get(m, m[0].upper()) for m in models)
     return f"{parts}({METHODS[method]})"
 
@@ -468,6 +478,8 @@ def main():
     parser.add_argument("--windows",  type=int, default=30)
     parser.add_argument("--ensemble-only", action="store_true",
                         help="Only show ensemble rows (still runs all models)")
+    parser.add_argument("--steps", type=int, default=None,
+                        help="Override ODE step count for Sundial (default: use model metadata)")
     args = parser.parse_args()
 
     print(f"\nDataset : {args.dataset}")
@@ -487,6 +499,7 @@ def main():
         windows, lat_ms, errors, unc_list = collect_windows(
             model_name, series,
             cfg["test_rows"], args.context, args.horizon, args.windows,
+            sundial_steps=args.steps,
         )
         all_windows[model_name] = windows
         all_unc[model_name]     = unc_list
@@ -547,7 +560,7 @@ def main():
 
     print("=" * 68)
     print("\nEnsemble key:  T=toto  C=chronos  F=timesfm  S=sundial  K=ttm  "
-          "L=lag_llama  M=moment  O=moirai  P=moirai2  W=flowstate")
+          "L=lag_llama  M=moment  O=moirai  P=moirai2  W=flowstate  X=tirex")
     print("  (μ)=mean  (~)=median  (w)=inv-MAE weighted  (tr)=trimmed mean")
     print("  (sfx)=softmax  (geo)=geometric mean  (onl)=online  (ada)=Hedge  "
           "(smo)=smooth  (sel)=best-model  (wh)=per-horizon  (uq)=uncertainty")

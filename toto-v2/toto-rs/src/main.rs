@@ -57,9 +57,16 @@ enum Command {
     },
     /// Run Toto-2 time-series forecasting from a GGUF file.
     ///
-    /// Reads a JSON request from stdin: {"context": [...], "horizon": N}
-    /// Outputs a JSON forecast in OpenAI-compatible format with 9 quantile levels.
-    /// The `point` field contains the median quantile (q0.5).
+    /// Reads a JSON request from stdin.
+    ///
+    /// Univariate batch:
+    ///   {"context": [[t0, t1, ...], [t0, t1, ...]], "horizon": N}
+    ///
+    /// Multivariate batch (n_var variates per series):
+    ///   {"context": [[[v0_t0, v0_t1, ...], [v1_t0, v1_t1, ...]], ...], "horizon": N}
+    ///
+    /// Univariate output has "point"/"quantiles" in each choice.
+    /// Multivariate output has "variates": [{"point":..., "quantiles":...}, ...].
     Infer {
         /// Path to the GGUF file.
         #[arg(short, long, default_value = "gguf/toto-2.5b-f16.gguf")]
@@ -153,7 +160,9 @@ async fn main() -> anyhow::Result<()> {
             let mut buf = String::new();
             std::io::stdin().read_to_string(&mut buf).context("read stdin")?;
             let req: serde_json::Value = serde_json::from_str(&buf).context("parse JSON input")?;
-            let contexts = parse_contexts(req["context"].clone())?;
+
+            // contexts: [batch][variate][time] — univariate is [batch][1][time]
+            let contexts = parse_mv_contexts(req["context"].clone())?;
             let horizon: usize = req["horizon"].as_u64().context("horizon must be a positive integer")? as usize;
 
             let config_str = std::fs::read_to_string(&config)
@@ -188,78 +197,166 @@ async fn main() -> anyhow::Result<()> {
             let model = TotoModel::load(&gguf, infer_config)
                 .context("load model")?;
 
-            let mut fc_choices = Vec::new();
-            for raw_ctx in &contexts {
-                anyhow::ensure!(!raw_ctx.is_empty(), "context series must not be empty");
+            let mut fc_outputs: Vec<ForecastOutput> = Vec::new();
+            let mut total_ctx: usize = 0;
 
-                // Trim to context window aligned to patch_size
-                let total_len = raw_ctx.len();
-                let usable = total_len.min(max_ctx);
-                let ctx_len = (usable / patch_size) * patch_size;
+            for raw_variates in &contexts {
+                let n_var = raw_variates.len();
+                anyhow::ensure!(n_var > 0, "each context must have at least one variate");
+
+                // Determine patch-aligned ctx_len from the first variate, apply to all
+                let v0_len = raw_variates[0].len();
+                let ctx_len = (v0_len.min(max_ctx) / patch_size) * patch_size;
                 anyhow::ensure!(
                     ctx_len > 0,
-                    "Context length is 0. Need at least {patch_size} timesteps."
+                    "context too short — need at least {patch_size} timesteps"
                 );
-                let start = total_len.saturating_sub(ctx_len);
-                let ctx = raw_ctx[start..].to_vec();
 
-                let mask: Vec<Vec<bool>> = vec![vec![true; ctx_len]];
-                let data: Vec<Vec<f32>> = vec![ctx];
+                let mut data: Vec<Vec<f32>> = Vec::with_capacity(n_var);
+                let mut mask: Vec<Vec<bool>> = Vec::with_capacity(n_var);
 
-                eprintln!("Running forecast ({ctx_len} context steps → {horizon} future steps) …");
+                for (vi, raw_ctx) in raw_variates.iter().enumerate() {
+                    anyhow::ensure!(
+                        raw_ctx.len() >= ctx_len,
+                        "variate {vi} has fewer than {ctx_len} timesteps (needed to match variate 0)"
+                    );
+                    let start = raw_ctx.len() - ctx_len;
+                    data.push(raw_ctx[start..].to_vec());
+                    mask.push(vec![true; ctx_len]);
+                }
+                total_ctx += ctx_len * n_var;
+
+                eprintln!("Running forecast ({ctx_len} context steps, {n_var} variate(s) → {horizon} future steps) …");
+                // quantile_mat: [9_quantiles][n_var][prediction_length]
                 let quantile_mat = model.forecast(&data, &mask, horizon).context("forecast")?;
 
-                let point = quantile_mat.get(median_idx)
-                    .and_then(|v| v.first())
-                    .cloned()
-                    .unwrap_or_default();
-                let mut quantiles = BTreeMap::new();
-                for (qi, &level) in quantile_levels.iter().enumerate() {
-                    if let Some(variate) = quantile_mat.get(qi) {
-                        if let Some(q) = variate.first() {
-                            quantiles.insert(format!("{level:.1}"), q.clone());
+                if n_var == 1 {
+                    // Univariate: standard point/quantiles format (backward-compatible)
+                    let point = quantile_mat.get(median_idx)
+                        .and_then(|v| v.first())
+                        .cloned()
+                        .unwrap_or_default();
+                    let mut quantiles = BTreeMap::new();
+                    for (qi, &level) in quantile_levels.iter().enumerate() {
+                        if let Some(var_row) = quantile_mat.get(qi) {
+                            if let Some(q) = var_row.first() {
+                                quantiles.insert(format!("{level:.2}"), q.clone());
+                            }
                         }
                     }
+                    fc_outputs.push(ForecastOutput::Univariate { point, quantiles });
+                } else {
+                    // Multivariate: variates array, one entry per variate
+                    let mut var_forecasts: Vec<VariateForecast> = Vec::with_capacity(n_var);
+                    for vi in 0..n_var {
+                        let point = quantile_mat.get(median_idx)
+                            .and_then(|v| v.get(vi))
+                            .cloned()
+                            .unwrap_or_default();
+                        let mut quantiles = BTreeMap::new();
+                        for (qi, &level) in quantile_levels.iter().enumerate() {
+                            if let Some(var_row) = quantile_mat.get(qi) {
+                                if let Some(q) = var_row.get(vi) {
+                                    quantiles.insert(format!("{level:.2}"), q.clone());
+                                }
+                            }
+                        }
+                        var_forecasts.push(VariateForecast { point, quantiles });
+                    }
+                    fc_outputs.push(ForecastOutput::Multivariate { variates: var_forecasts });
                 }
-                fc_choices.push((point, quantiles));
             }
-            let total_ctx: usize = contexts.iter().map(|c| c.len()).sum();
-            println!("{}", forecast_json("toto", total_ctx, horizon, fc_choices)?);
+
+            println!("{}", forecast_json("toto", total_ctx, horizon, fc_outputs)?);
         }
     }
 
     Ok(())
 }
 
-fn parse_contexts(val: serde_json::Value) -> anyhow::Result<Vec<Vec<f32>>> {
+// ---------------------------------------------------------------------------
+// JSON output types
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize)]
+#[serde(untagged)]
+enum ForecastOutput {
+    Univariate {
+        point: Vec<f32>,
+        quantiles: BTreeMap<String, Vec<f32>>,
+    },
+    Multivariate {
+        variates: Vec<VariateForecast>,
+    },
+}
+
+#[derive(Serialize)]
+struct VariateForecast {
+    point: Vec<f32>,
+    quantiles: BTreeMap<String, Vec<f32>>,
+}
+
+// ---------------------------------------------------------------------------
+// JSON input parsing
+// ---------------------------------------------------------------------------
+
+/// Parse the `context` field into [batch][variate][time].
+///
+/// Accepted shapes:
+///   [t0, t1, ...]                    → batch=1, n_var=1 (flat single series)
+///   [[t0, t1, ...], ...]             → batch=N, n_var=1 (batch of univariate)
+///   [[[v0_t0, ...], [v1_t0, ...]], ...] → batch=N, n_var=M (batch of multivariate)
+fn parse_mv_contexts(val: serde_json::Value) -> anyhow::Result<Vec<Vec<Vec<f32>>>> {
     match val {
         serde_json::Value::Array(arr) if arr.is_empty() => {
             anyhow::bail!("context must be a non-empty array")
         }
         serde_json::Value::Array(arr) => {
-            if arr.first().map(|v| v.is_array()).unwrap_or(false) {
+            let first = arr.first().unwrap();
+            if !first.is_array() {
+                // Flat: [t0, t1, ...] → batch=1, n_var=1
+                let ctx = serde_json::from_value::<Vec<f32>>(serde_json::Value::Array(arr))
+                    .context("context must be a JSON array of numbers")?;
+                Ok(vec![vec![ctx]])
+            } else if first
+                .as_array()
+                .and_then(|a| a.first())
+                .map(|v| v.is_array())
+                .unwrap_or(false)
+            {
+                // 3D: [batch][variate][time]
                 arr.into_iter()
                     .enumerate()
-                    .map(|(i, v)| {
-                        serde_json::from_value::<Vec<f32>>(v)
-                            .with_context(|| format!("context[{i}] must be an array of numbers"))
+                    .map(|(i, batch_item)| {
+                        serde_json::from_value::<Vec<Vec<f32>>>(batch_item)
+                            .with_context(|| format!("context[{i}] must be an array of variate arrays"))
                     })
                     .collect()
             } else {
-                let ctx = serde_json::from_value::<Vec<f32>>(serde_json::Value::Array(arr))
-                    .context("context must be a JSON array of numbers")?;
-                Ok(vec![ctx])
+                // 2D: [batch][time] → each series is n_var=1
+                arr.into_iter()
+                    .enumerate()
+                    .map(|(i, v)| {
+                        let series = serde_json::from_value::<Vec<f32>>(v)
+                            .with_context(|| format!("context[{i}] must be an array of numbers"))?;
+                        Ok(vec![series])
+                    })
+                    .collect()
             }
         }
         _ => anyhow::bail!("context must be a JSON array"),
     }
 }
 
+// ---------------------------------------------------------------------------
+// JSON response serialisation
+// ---------------------------------------------------------------------------
+
 fn forecast_json(
     model_name: &str,
     context_length: usize,
     forecast_length: usize,
-    fc_choices: Vec<(Vec<f32>, BTreeMap<String, Vec<f32>>)>,
+    fc_outputs: Vec<ForecastOutput>,
 ) -> anyhow::Result<String> {
     #[derive(Serialize)]
     struct ForecastResponse {
@@ -277,11 +374,6 @@ fn forecast_json(
         finish_reason: &'static str,
     }
     #[derive(Serialize)]
-    struct ForecastOutput {
-        point: Vec<f32>,
-        quantiles: BTreeMap<String, Vec<f32>>,
-    }
-    #[derive(Serialize)]
     struct Usage {
         context_length: usize,
         forecast_length: usize,
@@ -297,9 +389,9 @@ fn forecast_json(
         object: "forecast",
         created,
         model: model_name.to_string(),
-        choices: fc_choices.into_iter().enumerate().map(|(i, (point, quantiles))| Choice {
+        choices: fc_outputs.into_iter().enumerate().map(|(i, forecast)| Choice {
             index: i,
-            forecast: ForecastOutput { point, quantiles },
+            forecast,
             finish_reason: "stop",
         }).collect(),
         usage: Usage { context_length, forecast_length },

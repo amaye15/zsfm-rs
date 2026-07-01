@@ -87,7 +87,7 @@ impl TiRex {
         let mut q_map: BTreeMap<String, Vec<f32>> = BTreeMap::new();
         if all_outputs {
             for (i, q) in self.config.quantiles.iter().enumerate() {
-                q_map.insert(format!("q{:.1}", q), quantiles[i].clone());
+                q_map.insert(format!("{q:.2}"), quantiles[i].clone());
             }
         }
 

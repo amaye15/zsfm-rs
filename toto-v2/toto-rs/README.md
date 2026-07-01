@@ -1,24 +1,33 @@
 ---
 license: mit
 library_name: gguf
-tags:
-  - gguf
-  - time-series
-  - forecasting
-  - rust
+pipeline_tag: time-series-forecasting
+language:
+  - en
 base_model:
   - Datadog/Toto-2.0-4m
   - Datadog/Toto-2.0-22m
   - Datadog/Toto-2.0-313m
   - Datadog/Toto-2.0-1B
   - Datadog/Toto-2.0-2.5B
+base_model_relation: quantized
+quantized_by: amaye15
+tags:
+  - gguf
+  - time-series
+  - forecasting
+  - zero-shot
+  - probabilistic
+  - transformer
+  - rust
+inference: false
 ---
 
 # toto-rs
 
 Pure Rust converter and inference engine for [Datadog Toto-2.0](https://huggingface.co/collections/Datadog/toto-20-6768ce5e1b4c1d0e7c5b9fed).
 
-Produces GGUF v3 files and runs native forecasting — no Python required.
+Pre-converted GGUF files are available at [amaye15/toto-gguf](https://huggingface.co/amaye15/toto-gguf). Produces GGUF v3 files and runs native forecasting — no Python required.
 
 ## Build
 
@@ -65,7 +74,7 @@ Print all tensor names and shapes from a `.safetensors` checkpoint:
 
 ## Infer
 
-Run univariate quantile forecasting from comma-separated context values:
+Run univariate quantile forecasting from stdin JSON:
 
 ```bash
 echo '{"context": [1.0, 1.2, 1.5, 1.3, 1.8, 2.0, 1.9, 2.1], "horizon": 64}' \
@@ -87,9 +96,9 @@ Output is JSON in an OpenAI-compatible forecast format:
     "forecast": {
       "point": [2.1, 2.3, 2.5, "..."],
       "quantiles": {
-        "0.1": [1.8, 2.0, 2.2, "..."],
-        "0.5": [2.1, 2.3, 2.5, "..."],
-        "0.9": [2.4, 2.6, 2.8, "..."]
+        "0.10": [1.8, 2.0, 2.2, "..."],
+        "0.50": [2.1, 2.3, 2.5, "..."],
+        "0.90": [2.4, 2.6, 2.8, "..."]
       }
     },
     "finish_reason": "stop"
@@ -98,7 +107,7 @@ Output is JSON in an OpenAI-compatible forecast format:
 }
 ```
 
-`point` is the median (q0.5) forecast; quantiles q0.1–q0.9 are included.
+`point` is the median (q0.5) forecast; all 9 quantiles (q0.10–q0.90) are included.
 
 **Batch inference** — pass multiple series as a nested array to get one `Choice` per series:
 
@@ -107,6 +116,44 @@ echo '{"context": [[1.0, 1.2, 1.5], [2.0, 2.2, 2.5]], "horizon": 64}' \
   | ./target/release/toto-rs infer \
       --gguf gguf/toto-2.5b-f16.gguf \
       --config models/toto-2.5b/config.json
+```
+
+**Multivariate inference** — Toto's variate-aware architecture natively handles multiple co-occurring time series. Pass a 3D context array `[batch][variate][time]` to get a `variates` array in each choice:
+
+```bash
+echo '{
+  "context": [
+    [[1.0, 1.2, 1.5, 1.3, 1.8, 2.0, 1.9, 2.1],
+     [0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2]]
+  ],
+  "horizon": 64
+}' \
+  | ./target/release/toto-rs infer \
+      --gguf gguf/toto-2.5b-f16.gguf \
+      --config models/toto-2.5b/config.json
+```
+
+Multivariate output (one `variates` entry per variate):
+
+```json
+{
+  "choices": [{
+    "index": 0,
+    "forecast": {
+      "variates": [
+        {
+          "point": [2.1, 2.3, "..."],
+          "quantiles": {"0.10": [...], "0.50": [...], "0.90": [...]}
+        },
+        {
+          "point": [1.3, 1.4, "..."],
+          "quantiles": {"0.10": [...], "0.50": [...], "0.90": [...]}
+        }
+      ]
+    },
+    "finish_reason": "stop"
+  }]
+}
 ```
 
 

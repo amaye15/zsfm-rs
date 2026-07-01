@@ -6,6 +6,47 @@ use anyhow::Context;
 use candle_core::{DType, Device, Tensor, D};
 use candle_core::quantized::gguf_file;
 use candle_nn::ops;
+use simdeez::prelude::*;
+
+simd_runtime_generate!(
+    fn ssm_scan_step(
+        state_r: &mut [f32], state_i: &mut [f32],
+        a_r: &[f32], a_i: &[f32],
+        bu_r: &[f32], bu_i: &[f32],
+    ) {
+        let mut sr = &mut state_r[..]; let mut si = &mut state_i[..];
+        let mut ar = &a_r[..];         let mut ai = &a_i[..];
+        let mut br = &bu_r[..];        let mut bi = &bu_i[..];
+
+        while sr.len() >= S::Vf32::WIDTH {
+            let sr_v = S::Vf32::load_from_slice(sr);
+            let si_v = S::Vf32::load_from_slice(si);
+            let ar_v = S::Vf32::load_from_slice(ar);
+            let ai_v = S::Vf32::load_from_slice(ai);
+            let br_v = S::Vf32::load_from_slice(br);
+            let bi_v = S::Vf32::load_from_slice(bi);
+
+            // new_r = ar*sr - ai*si + br  (neg_mul_add(a,b,c) = c - a*b)
+            let new_r = ar_v.mul_add(sr_v, ai_v.neg_mul_add(si_v, br_v));
+            // new_i = ar*si + ai*sr + bi
+            let new_i = ar_v.mul_add(si_v, ai_v.mul_add(sr_v, bi_v));
+
+            new_r.copy_to_slice(sr);
+            new_i.copy_to_slice(si);
+
+            sr = &mut sr[S::Vf32::WIDTH..]; si = &mut si[S::Vf32::WIDTH..];
+            ar = &ar[S::Vf32::WIDTH..];     ai = &ai[S::Vf32::WIDTH..];
+            br = &br[S::Vf32::WIDTH..];     bi = &bi[S::Vf32::WIDTH..];
+        }
+
+        for j in 0..sr.len() {
+            let nr = ar[j] * sr[j] - ai[j] * si[j] + br[j];
+            let ni = ar[j] * si[j] + ai[j] * sr[j] + bi[j];
+            sr[j] = nr;
+            si[j] = ni;
+        }
+    }
+);
 
 // ---------------------------------------------------------------------------
 // Config
@@ -179,10 +220,21 @@ impl FlowStateModel {
         let scale_factor = cfg.decoder_patch_len as f32 / prediction_length as f32;
 
         // 6. Encoder: S5 layers
+        // Pre-allocate scratch buffers once and reuse across all blocks.
+        // This avoids repeated large Vec allocations (seq_len * state_dim floats each)
+        // that would otherwise be zero-initialised and discarded per non-last block.
+        let scratch_len = seq_len * cfg.state_dim;
+        let mut scan_r = vec![0.0f32; scratch_len];
+        let mut scan_i = vec![0.0f32; scratch_len];
+        let mut state_r = vec![0.0f32; cfg.state_dim];
+        let mut state_i = vec![0.0f32; cfg.state_dim];
         let num_layers = self.blocks.len();
         for (i, block) in self.blocks.iter().enumerate() {
             let is_last = i == num_layers - 1;
-            hidden = self.apply_s5_layer(hidden, block, scale_factor, is_last)?;
+            hidden = self.apply_s5_layer(
+                hidden, block, scale_factor, is_last,
+                &mut scan_r, &mut scan_i, &mut state_r, &mut state_i,
+            )?;
         }
         // After last layer: hidden is [1, embed_dim]
 
@@ -216,12 +268,33 @@ impl FlowStateModel {
         // 9. [n_q, decoder_dim] @ [decoder_dim, prediction_length] → [n_q, prediction_length]
         let out_t = coeffs.matmul(&basis.t()?)?;
 
-        // 10. Denormalize and convert to Vec<Vec<f32>>
+        // 10. Denormalize raw decoder channels.
         let out_raw: Vec<f32> = out_t.flatten_all()?.to_vec1()?;
-        let mut output = vec![vec![0.0f32; prediction_length]; n_q];
+        let mut denormed = vec![vec![0.0f32; prediction_length]; n_q];
         for q in 0..n_q {
             for p in 0..prediction_length {
-                output[q][p] = out_raw[q * prediction_length + p] * final_std + final_mean;
+                denormed[q][p] = out_raw[q * prediction_length + p] * final_std + final_mean;
+            }
+        }
+
+        // 11. Quantile recalibration: FlowStateForPrediction.forward() does not use the
+        // n_q raw decoder channels directly as quantile predictions. It treats them as
+        // n_q empirical samples and re-derives quantile estimates at the configured
+        // probability levels via linear-interpolation order statistics
+        // (`torch.quantile(model_output.last_hidden_state, quantiles, dim=1)` in
+        // modeling_flowstate.py). Skipping this step caused outer quantiles (q0.1, q0.9)
+        // to diverge from the Python reference by up to ~3.8 while q0.5 stayed near-exact
+        // (interpolation index for p=0.5 lands exactly on the middle sorted sample).
+        let mut output = vec![vec![0.0f32; prediction_length]; n_q];
+        for p in 0..prediction_length {
+            let mut sorted: Vec<f32> = (0..n_q).map(|q| denormed[q][p]).collect();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            for (qi, &prob) in cfg.quantiles.iter().enumerate() {
+                let idx = (n_q - 1) as f32 * prob;
+                let lower = idx.floor() as usize;
+                let upper = idx.ceil() as usize;
+                let weight = idx - lower as f32;
+                output[qi][p] = sorted[lower] * (1.0 - weight) + sorted[upper] * weight;
             }
         }
 
@@ -232,12 +305,20 @@ impl FlowStateModel {
     // S5 layer (one encoder block)
     // -----------------------------------------------------------------------
 
+    /// `scan_r` / `scan_i`: caller-owned scratch buffers of at least `seq_len * state_dim`
+    /// elements, reused across blocks to avoid repeated large heap allocations.
+    /// `state_r` / `state_i`: caller-owned scratch of at least `state_dim` elements.
+    #[allow(clippy::too_many_arguments)]
     fn apply_s5_layer(
         &self,
-        x: Tensor,      // [seq_len, embed_dim]
+        x: Tensor,          // [seq_len, embed_dim]
         block: &BlockWeights,
         scale_factor: f32,
         is_last: bool,
+        scan_r: &mut Vec<f32>,  // scratch: seq_len * state_dim (reused across blocks)
+        scan_i: &mut Vec<f32>,
+        state_r: &mut Vec<f32>, // scratch: state_dim (running real state)
+        state_i: &mut Vec<f32>, // scratch: state_dim (running imag state)
     ) -> anyhow::Result<Tensor> {
         let cfg = &self.config;
         let state_dim = cfg.state_dim;
@@ -270,39 +351,48 @@ impl FlowStateModel {
         let bu_r_data: Vec<f32> = bu_r.flatten_all()?.to_vec1()?;
         let bu_i_data: Vec<f32> = bu_i.flatten_all()?.to_vec1()?;
 
-        // Sequential SSM scan (inherently sequential — recurrence prevents parallelism).
-        // For the last block only the final hidden state is needed, so skip the history buffer.
+        // Sequential SSM scan: h[t] = A_bar * h[t-1] + B_bar * u[t].
+        // A_bar is diagonal complex, so each state dimension s is independent (NEON-vectorisable
+        // inner loop). The outer loop over t is the inherent sequential dependency.
+        // We reuse caller-provided scratch buffers to avoid repeated large heap allocations.
+        //
+        // Reset running state to zero at the start of each block.
+        state_r[..state_dim].fill(0.0);
+        state_i[..state_dim].fill(0.0);
+
         let (h_r_t, h_i_t) = if is_last {
-            let mut h_r = vec![0.0f32; state_dim];
-            let mut h_i = vec![0.0f32; state_dim];
+            // Last block: only the final hidden state is consumed downstream.
             for t in 0..seq_len {
-                for s in 0..state_dim {
-                    let new_r = a_bar_r[s] * h_r[s] - a_bar_i[s] * h_i[s] + bu_r_data[t * state_dim + s];
-                    let new_i = a_bar_r[s] * h_i[s] + a_bar_i[s] * h_r[s] + bu_i_data[t * state_dim + s];
-                    h_r[s] = new_r;
-                    h_i[s] = new_i;
-                }
+                let bu_r_t = &bu_r_data[t * state_dim..(t + 1) * state_dim];
+                let bu_i_t = &bu_i_data[t * state_dim..(t + 1) * state_dim];
+                ssm_scan_step(
+                    &mut state_r[..state_dim], &mut state_i[..state_dim],
+                    &a_bar_r, &a_bar_i, bu_r_t, bu_i_t,
+                );
             }
-            let hr = Tensor::from_vec(h_r, (1, state_dim), &self.device)?;
-            let hi = Tensor::from_vec(h_i, (1, state_dim), &self.device)?;
+            let hr = Tensor::from_vec(state_r[..state_dim].to_vec(), (1, state_dim), &self.device)?;
+            let hi = Tensor::from_vec(state_i[..state_dim].to_vec(), (1, state_dim), &self.device)?;
             (hr, hi)
         } else {
-            let mut h_r = vec![0.0f32; state_dim];
-            let mut h_i = vec![0.0f32; state_dim];
-            let mut all_h_r = vec![0.0f32; seq_len * state_dim];
-            let mut all_h_i = vec![0.0f32; seq_len * state_dim];
+            // Non-last blocks: full hidden state history required for the C projection.
+            // Ensure scratch buffers are large enough (they are since caller sized them for
+            // the maximum seq_len * state_dim of the first call in this forecast).
+            let needed = seq_len * state_dim;
+            if scan_r.len() < needed { scan_r.resize(needed, 0.0); }
+            if scan_i.len() < needed { scan_i.resize(needed, 0.0); }
             for t in 0..seq_len {
-                for s in 0..state_dim {
-                    let new_r = a_bar_r[s] * h_r[s] - a_bar_i[s] * h_i[s] + bu_r_data[t * state_dim + s];
-                    let new_i = a_bar_r[s] * h_i[s] + a_bar_i[s] * h_r[s] + bu_i_data[t * state_dim + s];
-                    h_r[s] = new_r;
-                    h_i[s] = new_i;
-                }
-                all_h_r[t * state_dim..(t + 1) * state_dim].copy_from_slice(&h_r);
-                all_h_i[t * state_dim..(t + 1) * state_dim].copy_from_slice(&h_i);
+                let bu_r_t = &bu_r_data[t * state_dim..(t + 1) * state_dim];
+                let bu_i_t = &bu_i_data[t * state_dim..(t + 1) * state_dim];
+                ssm_scan_step(
+                    &mut state_r[..state_dim], &mut state_i[..state_dim],
+                    &a_bar_r, &a_bar_i, bu_r_t, bu_i_t,
+                );
+                let row = t * state_dim;
+                scan_r[row..row + state_dim].copy_from_slice(&state_r[..state_dim]);
+                scan_i[row..row + state_dim].copy_from_slice(&state_i[..state_dim]);
             }
-            let hr = Tensor::from_vec(all_h_r, (seq_len, state_dim), &self.device)?;
-            let hi = Tensor::from_vec(all_h_i, (seq_len, state_dim), &self.device)?;
+            let hr = Tensor::from_vec(scan_r[..needed].to_vec(), (seq_len, state_dim), &self.device)?;
+            let hi = Tensor::from_vec(scan_i[..needed].to_vec(), (seq_len, state_dim), &self.device)?;
             (hr, hi)
         };
 
@@ -383,7 +473,12 @@ fn discretize(
     for s in 0..state_dim {
         let lam_r = -ssm.log_lambda_real[s].exp();
         let lam_i = ssm.lambda_imag[s];
-        let delta = (scale_factor * ssm.log_delta[s]).exp();
+        // Delta_eff = scale_factor * exp(log_Delta), matching modeling_flowstate.py's
+        // `log_Lambda_bar = scale_factor * lambda_ * exp(log_Delta)`. NOT
+        // exp(scale_factor * log_Delta) — the two coincide only at scale_factor == 1.0
+        // (i.e. when horizon == decoder_patch_len), which masked this bug for the
+        // common single-patch case.
+        let delta = scale_factor * ssm.log_delta[s].exp();
 
         let exp_r = lam_r * delta;
         let exp_i = lam_i * delta;

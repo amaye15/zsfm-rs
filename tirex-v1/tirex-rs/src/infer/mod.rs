@@ -5,6 +5,9 @@ use anyhow::{Context, Result};
 use candle_core::quantized::gguf_file;
 use candle_core::{DType, Device, Tensor};
 
+use simdeez::prelude::*;
+use simdeez::math::{SimdMathF32Core, SimdMathF32Hyperbolic};
+
 use crate::config::TiRexConfig;
 
 // ---------------------------------------------------------------------------
@@ -12,13 +15,10 @@ use crate::config::TiRexConfig;
 // ---------------------------------------------------------------------------
 
 struct Block {
-    norm_slstm: Vec<f32>,     // [D]
-    fgate_w: Vec<f32>,        // [NH, DH, DH] — LinearHeadwiseExpand weight
-    igate_w: Vec<f32>,
-    zgate_w: Vec<f32>,
-    ogate_w: Vec<f32>,
-    slstm_kernel: Vec<f32>,   // [NH, DH, NG*DH] = [4, 128, 512]
-    slstm_bias: Vec<f32>,     // [NG*NH*DH = 2048] in [NG, NH, DH] order
+    norm_slstm: Vec<f32>,      // [D]
+    fizo_w: Vec<f32>,          // [NH, 4*DH, DH] — f,i,z,o gates fused at load time
+    slstm_kernel_t: Vec<f32>,  // [NH, NG*DH, DH] = [4, 512, 128] — transposed for SIMD dot
+    slstm_bias: Vec<f32>,      // [NG*NH*DH = 2048] in [NG, NH, DH] order
     group_norm_w: Vec<f32>,   // [D] (learned offset, applied as 1 + w)
     norm_ffn: Vec<f32>,       // [D]
     ffn_gate_w: Tensor,       // [UP, D]
@@ -96,17 +96,46 @@ impl TiRexModel {
 
         let in_emb = load_embed_block(&content, &mut reader, "in_emb", &device)?;
 
+        let nh  = config.num_heads;
+        let dh  = config.head_dim();
+        let wpp = dh * dh; // weights per head per gate
+
         let mut blocks = Vec::with_capacity(config.num_blocks);
         for n in 0..config.num_blocks {
             let p = |s: &str| format!("blk.{n}.{s}");
+
+            // Load the 4 gate weights, concatenate into [NH, 4*DH, DH] at load time
+            let fgate_w = load_vec(&content, &mut reader, &p("fgate.weight"), &device)?;
+            let igate_w = load_vec(&content, &mut reader, &p("igate.weight"), &device)?;
+            let zgate_w = load_vec(&content, &mut reader, &p("zgate.weight"), &device)?;
+            let ogate_w = load_vec(&content, &mut reader, &p("ogate.weight"), &device)?;
+            let mut fizo_w = vec![0.0f32; nh * 4 * wpp];
+            for h in 0..nh {
+                fizo_w[h*4*wpp..       h*4*wpp+wpp  ].copy_from_slice(&fgate_w[h*wpp..(h+1)*wpp]);
+                fizo_w[h*4*wpp+wpp..   h*4*wpp+2*wpp].copy_from_slice(&igate_w[h*wpp..(h+1)*wpp]);
+                fizo_w[h*4*wpp+2*wpp.. h*4*wpp+3*wpp].copy_from_slice(&zgate_w[h*wpp..(h+1)*wpp]);
+                fizo_w[h*4*wpp+3*wpp.. h*4*wpp+4*wpp].copy_from_slice(&ogate_w[h*wpp..(h+1)*wpp]);
+            }
+
+            let raw_kernel = load_vec(&content, &mut reader, &p("slstm_kernel"), &device)?;
+            // Transpose kernel [NH, DH, NG*DH] → [NH, NG*DH, DH] so the inner dot-product
+            // dim (di) is contiguous, enabling simd_dot in compute_ry.
+            let ng = 4usize;
+            let mut slstm_kernel_t = vec![0.0f32; nh * ng * dh * dh];
+            for head in 0..nh {
+                for gate_d in 0..(ng * dh) {
+                    for di in 0..dh {
+                        slstm_kernel_t[head * ng * dh * dh + gate_d * dh + di] =
+                            raw_kernel[head * dh * ng * dh + di * ng * dh + gate_d];
+                    }
+                }
+            }
+
             blocks.push(Block {
-                norm_slstm:   load_vec(&content, &mut reader, &p("norm_slstm"), &device)?,
-                fgate_w:      load_vec(&content, &mut reader, &p("fgate.weight"), &device)?,
-                igate_w:      load_vec(&content, &mut reader, &p("igate.weight"), &device)?,
-                zgate_w:      load_vec(&content, &mut reader, &p("zgate.weight"), &device)?,
-                ogate_w:      load_vec(&content, &mut reader, &p("ogate.weight"), &device)?,
-                slstm_kernel: load_vec(&content, &mut reader, &p("slstm_kernel"), &device)?,
-                slstm_bias:   load_vec(&content, &mut reader, &p("slstm_bias"), &device)?,
+                norm_slstm:    load_vec(&content, &mut reader, &p("norm_slstm"), &device)?,
+                fizo_w,
+                slstm_kernel_t,
+                slstm_bias:    load_vec(&content, &mut reader, &p("slstm_bias"), &device)?,
                 group_norm_w: load_vec(&content, &mut reader, &p("group_norm"), &device)?,
                 norm_ffn:     load_vec(&content, &mut reader, &p("norm_ffn"), &device)?,
                 ffn_gate_w:   load_t(&content, &mut reader, &p("ffn_gate.weight"), &device)?,
@@ -184,9 +213,31 @@ impl TiRexModel {
                 &self.in_emb, &self.device,
             )?;
 
+            // Pre-allocate scratch buffers shared across all 12 sLSTM blocks.
+            // Each block previously re-allocated these on every call; pre-allocating once
+            // eliminates 12 × ~(1.5 MB) of heap churn per forecast() call.
+            let ng = 4usize;
+            let d  = cfg.embedding_dim;
+            let mut sc_xg    = vec![0.0f32; num_patches * ng * d]; // fused gate output / x_g
+            let mut sc_hout  = vec![0.0f32; num_patches * d];       // h_out
+            let mut sc_y     = vec![0.0f32; num_patches * d];       // group-norm output y
+            let mut sc_xn    = vec![0.0f32; num_patches * d];       // pre-norm copy x_n
+            let mut sc_raw   = vec![0.0f32; ng * d];                // raw = wx + ry + bias
+            let mut sc_ry_raw = vec![0.0f32; ng * d];               // compute_ry intermediate
+            let mut sc_ry_out = vec![0.0f32; ng * d];               // compute_ry output
+            let mut sc_hnew  = vec![0.0f32; d];                     // h_new (swapped, not re-alloc)
+            let mut sc_cnew  = vec![0.0f32; d];
+            let mut sc_nnew  = vec![0.0f32; d];
+            let mut sc_mnew  = vec![0.0f32; d];
+
             // 12 sLSTM blocks
             for block in &self.blocks {
-                hidden = self.forward_slstm_block(&hidden, num_patches, block)?;
+                hidden = self.forward_slstm_block(
+                    &hidden, num_patches, block,
+                    &mut sc_xg, &mut sc_hout, &mut sc_y, &mut sc_xn,
+                    &mut sc_raw, &mut sc_ry_raw, &mut sc_ry_out,
+                    &mut sc_hnew, &mut sc_cnew, &mut sc_nnew, &mut sc_mnew,
+                )?;
             }
 
             // out_norm (RMSNorm)
@@ -237,107 +288,84 @@ impl TiRexModel {
         Ok((quantiles, mean))
     }
 
-    fn forward_slstm_block(&self, x: &[f32], s: usize, blk: &Block) -> Result<Vec<f32>> {
+    #[allow(clippy::too_many_arguments)]
+    fn forward_slstm_block(
+        &self, x: &[f32], s: usize, blk: &Block,
+        sc_xg:    &mut [f32],  // [s * ng * d]  — fused gate projection output
+        sc_hout:  &mut [f32],  // [s * d]        — sLSTM hidden outputs
+        sc_y:     &mut [f32],  // [s * d]        — group-norm output
+        sc_xn:    &mut [f32],  // [s * d]        — pre-norm scratch
+        sc_raw:   &mut [f32],  // [ng * d]       — wx + ry + bias per step
+        sc_ry_raw: &mut [f32], // [ng * d]       — compute_ry intermediate
+        sc_ry_out: &mut [f32], // [ng * d]       — compute_ry output
+        sc_hnew: &mut Vec<f32>, sc_cnew: &mut Vec<f32>,
+        sc_nnew: &mut Vec<f32>, sc_mnew: &mut Vec<f32>,
+    ) -> Result<Vec<f32>> {
         let cfg = &self.config;
-        let d = cfg.embedding_dim;
+        let d  = cfg.embedding_dim;
         let nh = cfg.num_heads;
         let dh = cfg.head_dim();
         let ng = 4usize;
 
-        // Pre-norm
-        let mut x_n = x.to_vec();
-        rms_norm_inplace(&mut x_n, &blk.norm_slstm, d, 1e-6);
+        // Pre-norm: reuse sc_xn scratch to avoid allocation
+        sc_xn[..s * d].copy_from_slice(&x[..s * d]);
+        rms_norm_inplace(&mut sc_xn[..s * d], &blk.norm_slstm, d, 1e-6);
 
-        // Gate projections (headwise linear, batch over S tokens)
-        let f_proj = headwise_linear_batch(&x_n, &blk.fgate_w, s, nh, dh)?;
-        let i_proj = headwise_linear_batch(&x_n, &blk.igate_w, s, nh, dh)?;
-        let z_proj = headwise_linear_batch(&x_n, &blk.zgate_w, s, nh, dh)?;
-        let o_proj = headwise_linear_batch(&x_n, &blk.ogate_w, s, nh, dh)?;
+        // Single fused gate projection: [S, D] → [S, ng*D] in one pass over x_n.
+        // Replaces 4 separate headwise_linear_batch calls + interleaving copy loop.
+        headwise_linear_batch_ng(&sc_xn[..s * d], &blk.fizo_w, s, nh, dh, ng, sc_xg);
 
-        // Concatenate: x_g[s] = [f_proj[s], i_proj[s], z_proj[s], o_proj[s]] in [NG, NH, DH] order
-        let mut x_g = vec![0.0f32; s * ng * d];
-        for t in 0..s {
-            x_g[t * ng * d..t * ng * d + d].copy_from_slice(&f_proj[t * d..(t + 1) * d]);
-            x_g[t * ng * d + d..t * ng * d + 2 * d].copy_from_slice(&i_proj[t * d..(t + 1) * d]);
-            x_g[t * ng * d + 2 * d..t * ng * d + 3 * d].copy_from_slice(&z_proj[t * d..(t + 1) * d]);
-            x_g[t * ng * d + 3 * d..t * ng * d + 4 * d].copy_from_slice(&o_proj[t * d..(t + 1) * d]);
-        }
-
-        // Sequential sLSTM recurrence
+        // Sequential sLSTM recurrence — state lives on the stack, swapped not re-allocated
         let mut h = vec![0.0f32; d];
         let mut c = vec![0.0f32; d];
         let mut n = vec![0.0f32; d];
         let mut m = vec![f32::NEG_INFINITY; d];
-        let mut h_out = vec![0.0f32; s * d];
 
         for t in 0..s {
-            let wx = &x_g[t * ng * d..(t + 1) * ng * d]; // [NG*D = 2048]
-            let ry = compute_ry(&h, &blk.slstm_kernel, nh, dh, ng);
-            // raw = wx + ry + bias, all in [NG, NH, DH] order
-            let mut raw = vec![0.0f32; ng * d];
+            let wx = &sc_xg[t * ng * d..(t + 1) * ng * d];
+            compute_ry(&h, &blk.slstm_kernel_t, nh, dh, ng, sc_ry_raw, sc_ry_out);
+
+            // Reuse sc_raw to avoid per-step allocation of raw = wx + ry + bias
             for i in 0..ng * d {
-                raw[i] = wx[i] + ry[i] + blk.slstm_bias[i];
+                sc_raw[i] = wx[i] + sc_ry_out[i] + blk.slstm_bias[i];
             }
 
-            let is_first = n.iter().all(|&v| v == 0.0);
-            let mut h_new = vec![0.0f32; d];
-            let mut c_new = vec![0.0f32; d];
-            let mut n_new = vec![0.0f32; d];
-            let mut m_new = vec![0.0f32; d];
+            // is_first ≡ t == 0: n starts as zeros and is never zero again after step 0
+            let is_first = t == 0;
 
             // gate indices in flat [NG, NH, DH] layout:
             //   g=0 (offset 0) → iraw (from fgate module, input gate)
             //   g=1 (offset D) → fraw (from igate module, forget gate)
             //   g=2 (offset 2D) → zraw (cell gate)
             //   g=3 (offset 3D) → oraw (output gate)
-            for i in 0..d {
-                let iraw = raw[i];
-                let fraw = raw[d + i];
-                let zraw = raw[2 * d + i];
-                let oraw = raw[3 * d + i];
+            simd_gate_update(
+                &sc_raw[..d], &sc_raw[d..2*d], &sc_raw[2*d..3*d], &sc_raw[3*d..],
+                &c, &n, &m,
+                sc_cnew, sc_nnew, sc_hnew, sc_mnew,
+                is_first,
+            );
 
-                let log_sigma_f = log_sigmoid(fraw.min(15.0));
-                let logfplusm = m[i] + log_sigma_f;
-                let mnew = if is_first { iraw } else { iraw.max(logfplusm) };
-
-                let ogate = sigmoid(oraw);
-                let igate = (iraw - mnew).exp().min(1.0);
-                let fgate = (logfplusm - mnew).exp().min(1.0);
-                let zgate = zraw.tanh();
-
-                c_new[i] = fgate * c[i] + igate * zgate;
-                n_new[i] = fgate * n[i] + igate;
-                // Guard against n≈0 (shouldn't happen in normal operation)
-                h_new[i] = if n_new[i].abs() > 1e-8 {
-                    ogate * c_new[i] / n_new[i]
-                } else {
-                    0.0
-                };
-                m_new[i] = mnew;
-            }
-
-            h = h_new;
-            c = c_new;
-            n = n_new;
-            m = m_new;
-            h_out[t * d..(t + 1) * d].copy_from_slice(&h);
+            // Swap state vectors — zero allocation, just pointer swap
+            std::mem::swap(&mut h, sc_hnew);
+            std::mem::swap(&mut c, sc_cnew);
+            std::mem::swap(&mut n, sc_nnew);
+            std::mem::swap(&mut m, sc_mnew);
+            sc_hout[t * d..(t + 1) * d].copy_from_slice(&h);
         }
 
         // MultiHeadLayerNorm (group norm per head per token) + reshape to [S, D]
-        let mut y = vec![0.0f32; s * d];
         for t in 0..s {
-            let h_t = &h_out[t * d..(t + 1) * d]; // [D = NH*DH]
-            // Group norm: for each head h, normalize [DH] elements, apply (1 + w)
+            let h_t = &sc_hout[t * d..(t + 1) * d];
             for head in 0..nh {
                 let start = head * dh;
-                let end = start + dh;
-                let h_slice = &h_t[start..end];
+                let h_slice = &h_t[start..start + dh];
                 let mean = h_slice.iter().sum::<f32>() / dh as f32;
                 let var = h_slice.iter().map(|&v| (v - mean) * (v - mean)).sum::<f32>() / dh as f32;
                 let inv_std = 1.0 / (var + 1e-5f32).sqrt();
-                let w_slice = &blk.group_norm_w[start..end];
+                let w_slice = &blk.group_norm_w[start..start + dh];
                 for d_i in 0..dh {
-                    y[t * d + start + d_i] = (h_t[start + d_i] - mean) * inv_std * (1.0 + w_slice[d_i]);
+                    sc_y[t * d + start + d_i] =
+                        (h_t[start + d_i] - mean) * inv_std * (1.0 + w_slice[d_i]);
                 }
             }
         }
@@ -345,15 +373,15 @@ impl TiRexModel {
         // Residual: x + y
         let mut x_out = x.to_vec();
         for i in 0..s * d {
-            x_out[i] += y[i];
+            x_out[i] += sc_y[i];
         }
 
-        // FFN pre-norm
-        let mut x_n2 = x_out.clone();
-        rms_norm_inplace(&mut x_n2, &blk.norm_ffn, d, 1e-6);
+        // FFN pre-norm (reuse sc_xn)
+        sc_xn[..s * d].copy_from_slice(&x_out[..s * d]);
+        rms_norm_inplace(&mut sc_xn[..s * d], &blk.norm_ffn, d, 1e-6);
 
         // FFN: SiLU gated: (silu(gate(x)) * up(x)) → down
-        let ffn_out = ffn_forward(&x_n2, s, d, cfg.ffn_up_dim, blk, &self.device)?;
+        let ffn_out = ffn_forward(&sc_xn[..s * d], s, d, cfg.ffn_up_dim, blk, &self.device)?;
 
         // Residual: x_out + ffn
         for i in 0..s * d {
@@ -382,6 +410,134 @@ fn log_sigmoid(x: f32) -> f32 {
         x - (1.0 + x.exp()).ln()
     }
 }
+
+// ---------------------------------------------------------------------------
+// SIMD kernels (cross-platform: SSE2 / AVX2 / AVX-512 / NEON / WASM / scalar)
+// ---------------------------------------------------------------------------
+
+simd_runtime_generate!(
+    fn simd_sq_sum(row: &[f32]) -> f32 {
+        let mut r = &row[..];
+        let mut acc = S::Vf32::zeroes();
+        while r.len() >= S::Vf32::WIDTH {
+            let v = S::Vf32::load_from_slice(r);
+            acc = v.mul_add(v, acc);
+            r = &r[S::Vf32::WIDTH..];
+        }
+        let mut sum = acc.horizontal_add();
+        for &x in r { sum += x * x; }
+        sum
+    }
+);
+
+simd_runtime_generate!(
+    fn simd_scale_weight(row: &mut [f32], w: &[f32], scale: f32) {
+        let sc = S::Vf32::set1(scale);
+        let mut r = &mut row[..];
+        let mut wv = &w[..];
+        while r.len() >= S::Vf32::WIDTH {
+            let v = S::Vf32::load_from_slice(r);
+            let wi = S::Vf32::load_from_slice(wv);
+            (v * sc * wi).copy_to_slice(r);
+            r = &mut r[S::Vf32::WIDTH..];
+            wv = &wv[S::Vf32::WIDTH..];
+        }
+        for i in 0..r.len() { r[i] *= scale * wv[i]; }
+    }
+);
+
+simd_runtime_generate!(
+    fn simd_dot(a: &[f32], b: &[f32]) -> f32 {
+        let mut aa = &a[..];
+        let mut bb = &b[..];
+        let mut acc = S::Vf32::zeroes();
+        while aa.len() >= S::Vf32::WIDTH {
+            let va = S::Vf32::load_from_slice(aa);
+            let vb = S::Vf32::load_from_slice(bb);
+            acc = va.mul_add(vb, acc);
+            aa = &aa[S::Vf32::WIDTH..];
+            bb = &bb[S::Vf32::WIDTH..];
+        }
+        let mut sum = acc.horizontal_add();
+        for (&x, &y) in aa.iter().zip(bb.iter()) { sum += x * y; }
+        sum
+    }
+);
+
+simd_runtime_generate!(
+    fn simd_gate_update(
+        iraw: &[f32], fraw: &[f32], zraw: &[f32], oraw: &[f32],
+        c: &[f32], n: &[f32], m: &[f32],
+        cnew: &mut [f32], nnew: &mut [f32], hnew: &mut [f32], mnew: &mut [f32],
+        is_first: bool,
+    ) {
+        let clamp = S::Vf32::set1(15.0f32);
+        let one   = S::Vf32::set1(1.0f32);
+        let eps   = S::Vf32::set1(1e-8f32);
+        let zero  = S::Vf32::zeroes();
+
+        let mut ir = &iraw[..]; let mut fr = &fraw[..];
+        let mut zr = &zraw[..]; let mut or_ = &oraw[..];
+        let mut cv = &c[..];    let mut nv = &n[..];    let mut mv = &m[..];
+        let mut cnw = &mut cnew[..]; let mut nnw = &mut nnew[..];
+        let mut hnw = &mut hnew[..]; let mut mnw = &mut mnew[..];
+
+        while ir.len() >= S::Vf32::WIDTH {
+            let iv  = S::Vf32::load_from_slice(ir);
+            let fv  = S::Vf32::load_from_slice(fr).min(clamp);
+            let zv  = S::Vf32::load_from_slice(zr);
+            let ov  = S::Vf32::load_from_slice(or_);
+            let cv_ = S::Vf32::load_from_slice(cv);
+            let nv_ = S::Vf32::load_from_slice(nv);
+            let mv_ = S::Vf32::load_from_slice(mv);
+
+            // log_sigmoid(fv): stable two-branch form, select by sign
+            let ls_pos = -(one + (-fv).exp_u35()).ln_u35();     // fv >= 0: -ln(1+exp(-fv))
+            let ls_neg = fv - (one + fv.exp_u35()).ln_u35();     // fv < 0:  fv - ln(1+exp(fv))
+            let log_sig_f = fv.cmp_lt(zero).blendv(ls_pos, ls_neg);
+
+            let logfplusm = mv_ + log_sig_f;
+            let mnew_v = if is_first { iv } else { iv.max(logfplusm) };
+
+            let ogate = one / (one + (-ov).exp_u35());            // sigmoid(ov)
+            let igate = (iv - mnew_v).exp_u35().min(one);
+            let fgate = (logfplusm - mnew_v).exp_u35().min(one);
+            let zgate = zv.tanh_u35();
+
+            let cnew_v = fgate.mul_add(cv_, igate * zgate);
+            let nnew_v = fgate.mul_add(nv_, igate);
+
+            let mask  = nnew_v.abs().cmp_gt(eps);
+            let hnew_v = mask.blendv(zero, ogate * cnew_v / nnew_v);
+
+            cnew_v.copy_to_slice(cnw); nnew_v.copy_to_slice(nnw);
+            hnew_v.copy_to_slice(hnw); mnew_v.copy_to_slice(mnw);
+
+            ir  = &ir[S::Vf32::WIDTH..];  fr  = &fr[S::Vf32::WIDTH..];
+            zr  = &zr[S::Vf32::WIDTH..];  or_ = &or_[S::Vf32::WIDTH..];
+            cv  = &cv[S::Vf32::WIDTH..];  nv  = &nv[S::Vf32::WIDTH..];
+            mv  = &mv[S::Vf32::WIDTH..];
+            cnw = &mut cnw[S::Vf32::WIDTH..]; nnw = &mut nnw[S::Vf32::WIDTH..];
+            hnw = &mut hnw[S::Vf32::WIDTH..]; mnw = &mut mnw[S::Vf32::WIDTH..];
+        }
+
+        for i in 0..ir.len() {
+            let iv_s = ir[i]; let fv_s = fr[i].min(15.0); let zv_s = zr[i]; let ov_s = or_[i];
+            let c_s = cv[i]; let n_s = nv[i]; let m_s = mv[i];
+            let ls = if fv_s >= 0.0 { -(1.0 + (-fv_s).exp()).ln() } else { fv_s - (1.0 + fv_s.exp()).ln() };
+            let lfpm = m_s + ls;
+            let mn = if is_first { iv_s } else { iv_s.max(lfpm) };
+            let og = 1.0 / (1.0 + (-ov_s).exp());
+            let ig = (iv_s - mn).exp().min(1.0);
+            let fg = (lfpm - mn).exp().min(1.0);
+            let zg = zv_s.tanh();
+            cnw[i] = fg * c_s + ig * zg;
+            nnw[i] = fg * n_s + ig;
+            hnw[i] = if nnw[i].abs() > 1e-8 { og * cnw[i] / nnw[i] } else { 0.0 };
+            mnw[i] = mn;
+        }
+    }
+);
 
 /// StandardScaler: compute (loc, scale) ignoring NaN values.
 fn standard_scaler(x: &[f32]) -> (f32, f32) {
@@ -414,63 +570,58 @@ fn rms_norm_inplace(x: &mut [f32], w: &[f32], d: usize, eps: f32) {
     let s = x.len() / d;
     for t in 0..s {
         let row = &mut x[t * d..(t + 1) * d];
-        let ms = row.iter().map(|&v| v * v).sum::<f32>() / d as f32;
-        let scale = 1.0 / (ms + eps).sqrt();
-        for (i, v) in row.iter_mut().enumerate() {
-            *v = *v * scale * w[i];
-        }
+        let ss = simd_sq_sum(row);
+        let scale = 1.0 / (ss / d as f32 + eps).sqrt();
+        simd_scale_weight(row, w, scale);
     }
 }
 
-/// LinearHeadwiseExpand: [S, D] → [S, D] using per-head weights [NH, DH, DH].
-fn headwise_linear_batch(x: &[f32], w: &[f32], s: usize, nh: usize, dh: usize) -> Result<Vec<f32>> {
-    let d = nh * dh;
-    // w layout: [NH, DH_out, DH_in] = [NH, DH, DH]
-    // For each token t, head h: y[t, h, :] = x[t, h, :] @ w[h].T
-    // w[h] has shape [DH_out, DH_in], so w[h].T has shape [DH_in, DH_out]
-    let mut out = vec![0.0f32; s * d];
+/// Fused headwise linear for ng gate groups: [S, D] → [S, ng*D] written into `out`.
+///
+/// w layout: [NH, ng*DH, DH] — for head h, gate g: rows g*DH..(g+1)*DH hold w[h,g,:].
+/// Output layout: out[t, g, h, o] at flat index t*ng*d + g*d + h*dh + o.
+/// This matches the x_g layout expected by the sLSTM recurrence, so no interleaving
+/// copy is needed after calling this function.
+fn headwise_linear_batch_ng(x: &[f32], w: &[f32], s: usize, nh: usize, dh: usize, ng: usize, out: &mut [f32]) {
+    let d    = nh * dh;
+    let ngdh = ng * dh;
     for t in 0..s {
         for h in 0..nh {
-            let x_h = &x[t * d + h * dh..t * d + (h + 1) * dh]; // [DH_in]
-            let w_h = &w[h * dh * dh..(h + 1) * dh * dh]; // [DH_out, DH_in]
-            let out_h = &mut out[t * d + h * dh..t * d + (h + 1) * dh]; // [DH_out]
-            // out_h[o] = sum_d(x_h[d] * w_h[o*DH_in + d])
-            for o in 0..dh {
-                let mut acc = 0.0f32;
-                let w_row = &w_h[o * dh..(o + 1) * dh];
-                for (di, &xv) in x_h.iter().enumerate() {
-                    acc += xv * w_row[di];
+            let x_h     = &x[t * d + h * dh..t * d + (h + 1) * dh];
+            let w_h_off = h * ngdh * dh;
+            for g in 0..ng {
+                let out_base    = t * ng * d + g * d + h * dh;
+                let w_gate_off  = w_h_off + g * dh * dh;
+                for o in 0..dh {
+                    let w_row = &w[w_gate_off + o * dh..w_gate_off + (o + 1) * dh];
+                    out[out_base + o] = simd_dot(x_h, w_row);
                 }
-                out_h[o] = acc;
             }
         }
     }
-    Ok(out)
 }
 
 /// Compute recurrent contribution Ry from h_prev and the sLSTM kernel.
 ///
-/// kernel layout: [NH, DH, NG*DH] — for each head, h_head @ kernel_head → [NG*DH]
-/// Output: [NG*NH*DH = 2048] in [NG, NH, DH] order (matching gate projection order).
-fn compute_ry(h: &[f32], kernel: &[f32], nh: usize, dh: usize, ng: usize) -> Vec<f32> {
-    // ry_raw[NH, NG, DH] — will be permuted to [NG, NH, DH]
-    let mut ry_raw = vec![0.0f32; nh * ng * dh];
+/// kernel_t layout: [NH, NG*DH, DH] (transposed at load time from [NH, DH, NG*DH])
+/// so the inner dot-product dimension (di) is contiguous, enabling simd_dot.
+/// Output written into `out`: [NG*NH*DH = 2048] in [NG, NH, DH] order.
+fn compute_ry(
+    h: &[f32], kernel_t: &[f32],
+    nh: usize, dh: usize, ng: usize,
+    ry_raw: &mut [f32],
+    out: &mut [f32],
+) {
+    // ry_raw[NH, NG*DH]: for each head, dot h_head with each row of kernel_t[head]
     for head in 0..nh {
-        let h_h = &h[head * dh..(head + 1) * dh]; // [DH]
-        // kernel[head] has shape [DH, NG*DH] in row-major
-        let k_offset = head * dh * ng * dh;
+        let h_h    = &h[head * dh..(head + 1) * dh];
+        let k_head = &kernel_t[head * ng * dh * dh..];
         for gate_d in 0..ng * dh {
-            let mut acc = 0.0f32;
-            for di in 0..dh {
-                acc += h_h[di] * kernel[k_offset + di * ng * dh + gate_d];
-            }
-            // gate_d indexes [NG, DH] flat: gate = gate_d/dh, d = gate_d%dh
-            ry_raw[head * ng * dh + gate_d] = acc;
+            let k_row = &k_head[gate_d * dh..(gate_d + 1) * dh]; // contiguous — simd_dot applies
+            ry_raw[head * ng * dh + gate_d] = simd_dot(h_h, k_row);
         }
     }
-
     // Permute [NH, NG, DH] → [NG, NH, DH]
-    let mut out = vec![0.0f32; nh * ng * dh];
     for head in 0..nh {
         for g in 0..ng {
             for d in 0..dh {
@@ -478,7 +629,6 @@ fn compute_ry(h: &[f32], kernel: &[f32], nh: usize, dh: usize, ng: usize) -> Vec
             }
         }
     }
-    out
 }
 
 /// ResidualBlock forward: x → relu(x @ Wh.T + bh) @ Wo.T + bo + x @ Wr.T + br

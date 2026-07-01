@@ -62,13 +62,14 @@ DATASET_META = {
     "saugeeen":       {"freq": "1d",    "domain": "Hydrology"},
 }
 
-SOLO_MODELS = ["toto", "chronos", "timesfm", "sundial", "ttm", "lag_llama", "moment", "moirai", "moirai2", "flowstate"]
+SOLO_MODELS = ["toto", "chronos", "timesfm", "sundial", "ttm", "lag_llama", "moment", "moirai", "moirai2", "flowstate", "tirex"]
 MODEL_LABELS = {
     "toto": "Toto", "chronos": "Chronos",
     "timesfm": "TimesFM", "sundial": "Sundial",
     "ttm": "TTM", "lag_llama": "Lag-Llama",
     "moment": "Moment", "moirai": "Moirai",
     "moirai2": "Moirai-2", "flowstate": "FlowState",
+    "tirex": "TiRex",
 }
 
 HORIZONS      = [96, 192, 336, 720]
@@ -424,6 +425,7 @@ def main():
         "| Moirai | ~311M | Universal forecasting encoder (Salesforce) |",
         "| Moirai-2 | ~311M | Universal forecasting decoder (Salesforce) |",
         "| FlowState | ~50M | SSM encoder-decoder with Legendre quantile basis (IBM) |",
+        "| TiRex | ~200M | Patch-based encoder with RoPE (Huawei) |",
         "",
         "**Ensemble strategies (all non-trivial subsets, size ≥ 2):**",
         "| Symbol | Strategy |",
@@ -573,7 +575,7 @@ def main():
     }
     _STRATEGIES_ORDER = ["w","onl","ada","smo","sel","wh","uq","~","geo","μ","tr","sfx"]
     _MODEL_DECODE = {"T":"Toto","C":"Chronos","F":"TimesFM","S":"Sundial",
-                     "K":"TTM","L":"Lag-Llama","M":"Moment","O":"Moirai","P":"Moirai-2","W":"FlowState"}
+                     "K":"TTM","L":"Lag-Llama","M":"Moment","O":"Moirai","P":"Moirai-2","W":"FlowState","X":"TiRex"}
 
     strategy_stats: dict = {}
     combo_stats:    dict = {}
@@ -624,7 +626,7 @@ def main():
 
     lines += ["### Model Combination Win Counts", "",
               "> T=Toto, C=Chronos, F=TimesFM, S=Sundial, K=TTM, L=Lag-Llama, M=Moment, "
-              "O=Moirai, P=Moirai-2, W=FlowState.", ""]
+              "O=Moirai, P=Moirai-2, W=FlowState, X=TiRex.", ""]
     sorted_combos = sorted(combo_stats.items(), key=lambda x: -x[1]["times"])
     c_rows = []
     for combo, cc in sorted_combos:

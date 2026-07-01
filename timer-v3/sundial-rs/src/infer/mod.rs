@@ -138,7 +138,7 @@ fn sinusoidal_embed(t: f32, dim: usize) -> Vec<f32> {
 }
 
 impl SundialModel {
-    pub fn load(path: &Path, device: &Device) -> Result<Self> {
+    pub fn load(path: &Path, device: &Device, steps_override: Option<usize>) -> Result<Self> {
         let f = File::open(path)
             .map_err(|e| anyhow::anyhow!("open {}: {}", path.display(), e))?;
         let mut reader = BufReader::new(f);
@@ -146,7 +146,8 @@ impl SundialModel {
             .map_err(|e| anyhow::anyhow!("read gguf: {}", e))?;
 
         let n_layers = get_u32(&content, "sundial1.block_count").unwrap_or(12) as usize;
-        let n_steps = get_u32(&content, "sundial1.flow.num_sampling_steps").unwrap_or(50) as usize;
+        let gguf_n_steps = get_u32(&content, "sundial1.flow.num_sampling_steps").unwrap_or(50) as usize;
+        let n_steps = steps_override.unwrap_or(gguf_n_steps);
         let flow_depth = get_u32(&content, "sundial1.flow.depth").unwrap_or(3) as usize;
         let output_len = get_u32(&content, "sundial1.output_token_len").unwrap_or(720) as usize;
 
@@ -228,7 +229,7 @@ impl SundialModel {
             out_adaln_b: lt!("flow.out_adaln.bias"),
         };
 
-        let rope = RopeCache::new(HEAD_DIM, MAX_SEQ, ROPE_THETA);
+        let rope = RopeCache::new(HEAD_DIM, MAX_SEQ, ROPE_THETA, device)?;
 
         // Precompute time embeddings for all ODE steps (sinusoidal → t1_proj → silu → t2_proj)
         let t_emb_table: Vec<Tensor> = (0..=n_steps)

@@ -20,13 +20,18 @@ anyhow       = "1"
 byteorder    = "1"
 candle-core  = { version = "0.8", features = ["accelerate"] }
 candle-nn    = { version = "0.8", features = ["accelerate"] }
+simdeez      = "3"
 indicatif    = "0.17"
 sha2 = "0.10"
 base64 = "0.22"
 tokio-util = { version = "0.7", features = ["io"] }
 
 [profile.release]
-opt-level = 3
+opt-level     = 3
+lto           = "fat"
+codegen-units = 1
+strip         = true
+panic         = "abort"
 
 
 [features]

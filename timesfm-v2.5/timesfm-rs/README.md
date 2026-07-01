@@ -1,19 +1,29 @@
 ---
 license: mit
 library_name: gguf
+pipeline_tag: time-series-forecasting
+language:
+  - en
+base_model: google/timesfm-2.5-200m-pytorch
+base_model_relation: quantized
+quantized_by: amaye15
 tags:
   - gguf
   - time-series
   - forecasting
+  - zero-shot
+  - probabilistic
+  - transformer
+  - patch-based
   - rust
-base_model: google/timesfm-2.5-200m-pytorch
+inference: false
 ---
 
 # timesfm-rs
 
 Pure Rust converter and inference engine for [google/timesfm-2.5-200m-pytorch](https://huggingface.co/google/timesfm-2.5-200m-pytorch).
 
-Produces GGUF v3 files and runs native forecasting — no Python required.
+Pre-converted GGUF files are available at [amaye15/timesfm-gguf](https://huggingface.co/amaye15/timesfm-gguf). Produces GGUF v3 files and runs native forecasting — no Python required.
 
 ## Build
 
@@ -78,9 +88,9 @@ Output is JSON in an OpenAI-compatible forecast format with point forecast and a
     "forecast": {
       "point": [2.1, 2.3, 2.5, "..."],
       "quantiles": {
-        "0.1": [1.8, 2.0, 2.2, "..."],
-        "0.5": [2.1, 2.3, 2.5, "..."],
-        "0.9": [2.4, 2.6, 2.8, "..."]
+        "0.10": [1.8, 2.0, 2.2, "..."],
+        "0.50": [2.1, 2.3, 2.5, "..."],
+        "0.90": [2.4, 2.6, 2.8, "..."]
       }
     },
     "finish_reason": "stop"

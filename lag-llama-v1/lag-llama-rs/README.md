@@ -1,19 +1,28 @@
 ---
 license: mit
 library_name: gguf
+pipeline_tag: time-series-forecasting
+language:
+  - en
+base_model: time-series-foundation-models/Lag-Llama
+base_model_relation: quantized
+quantized_by: amaye15
 tags:
   - gguf
   - time-series
   - forecasting
+  - zero-shot
+  - autoregressive
+  - llm
   - rust
-base_model: time-series-foundation-models/Lag-Llama
+inference: false
 ---
 
 # lag-llama-rs
 
 Pure Rust converter and inference engine for [time-series-foundation-models/Lag-Llama](https://huggingface.co/time-series-foundation-models/Lag-Llama).
 
-Produces GGUF v3 files and runs native forecasting — no Python required.
+Pre-converted GGUF files are available at [amaye15/lag-llama-gguf](https://huggingface.co/amaye15/lag-llama-gguf). Produces GGUF v3 files and runs native forecasting — no Python required.
 
 ## Build
 

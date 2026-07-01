@@ -37,8 +37,8 @@ def run_rust(model: str, dtype: str, context: np.ndarray, horizon: int = 32) -> 
     )
     fc = json.loads(result.stdout)["choices"][0]["forecast"]
     quants = fc.get("quantiles", {})
-    if "0.5" in quants:
-        return np.array(quants["0.5"], dtype=np.float32)
+    if "0.50" in quants:
+        return np.array(quants["0.50"], dtype=np.float32)
     return np.array(fc["point"], dtype=np.float32)
 
 

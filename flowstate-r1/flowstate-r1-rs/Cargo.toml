@@ -24,9 +24,14 @@ base64 = "0.22"
 tokio-util = { version = "0.7", features = ["io"] }
 candle-core = { version = "0.8", features = ["accelerate"] }
 candle-nn   = { version = "0.8", features = ["accelerate"] }
+simdeez     = "3"
 
 [profile.release]
-opt-level = 3
+opt-level     = 3
+lto           = "fat"
+codegen-units = 1
+strip         = true
+panic         = "abort"
 
 
 [features]

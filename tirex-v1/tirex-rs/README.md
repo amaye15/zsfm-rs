@@ -1,3 +1,23 @@
+---
+license: mit
+library_name: gguf
+pipeline_tag: time-series-forecasting
+language:
+  - en
+base_model: NX-AI/TiRex
+base_model_relation: quantized
+quantized_by: amaye15
+tags:
+  - gguf
+  - time-series
+  - forecasting
+  - zero-shot
+  - probabilistic
+  - slstm
+  - rust
+inference: false
+---
+
 # tirex-rs
 
 Pure-Rust GGUF converter and inference engine for [TiRex](https://huggingface.co/NX-AI/TiRex) — a 35M parameter sLSTM-based zero-shot time-series forecasting model from NXAI.
@@ -44,7 +64,7 @@ The output is OpenAI-compatible JSON:
   "choices": [{
     "forecast": {
       "point": [...],
-      "quantiles": { "q0.1": [...], "q0.5": [...], "q0.9": [...] }
+      "quantiles": { "0.10": [...], "0.50": [...], "0.90": [...] }
     }
   }]
 }

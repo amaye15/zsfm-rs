@@ -18,8 +18,8 @@ TIMESFM_SRC = os.path.join(REPO_ROOT, "..", "timesfm", "src")
 if os.path.isdir(TIMESFM_SRC):
     sys.path.insert(0, TIMESFM_SRC)
 
-QUANTILE_LABELS = ["point", "q0.1", "q0.2", "q0.3", "q0.4", "q0.5", "q0.6", "q0.7", "q0.8", "q0.9"]
-QUANTILE_KEYS   = ["0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9"]
+QUANTILE_LABELS = ["point", "q0.10", "q0.20", "q0.30", "q0.40", "q0.50", "q0.60", "q0.70", "q0.80", "q0.90"]
+QUANTILE_KEYS   = ["0.10", "0.20", "0.30", "0.40", "0.50", "0.60", "0.70", "0.80", "0.90"]
 
 
 def make_context(n=128):

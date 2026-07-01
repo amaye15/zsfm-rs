@@ -1,19 +1,28 @@
 ---
 license: mit
 library_name: gguf
+pipeline_tag: time-series-forecasting
+language:
+  - en
+base_model: ibm-granite/granite-timeseries-flowstate-r1
+base_model_relation: quantized
+quantized_by: amaye15
 tags:
   - gguf
   - time-series
   - forecasting
+  - zero-shot
+  - probabilistic
+  - state-space-model
   - rust
-base_model: ibm-granite/granite-timeseries-flowstate-r1
+inference: false
 ---
 
 # flowstate-r1-rs
 
 Pure Rust converter and inference engine for [ibm-granite/granite-timeseries-flowstate-r1](https://huggingface.co/ibm-granite/granite-timeseries-flowstate-r1).
 
-Produces GGUF v3 files and runs native forecasting — no Python required.
+Pre-converted GGUF files are available at [amaye15/flowstate-r1-gguf](https://huggingface.co/amaye15/flowstate-r1-gguf). Produces GGUF v3 files and runs native forecasting — no Python required.
 
 ## Build
 
@@ -89,9 +98,9 @@ Output is JSON in an OpenAI-compatible forecast format:
     "forecast": {
       "point": [2.1, 2.3, 2.5, "..."],
       "quantiles": {
-        "0.1": [1.8, 2.0, 2.2, "..."],
-        "0.5": [2.1, 2.3, 2.5, "..."],
-        "0.9": [2.4, 2.6, 2.8, "..."]
+        "0.10": [1.8, 2.0, 2.2, "..."],
+        "0.50": [2.1, 2.3, 2.5, "..."],
+        "0.90": [2.4, 2.6, 2.8, "..."]
       }
     },
     "finish_reason": "stop"

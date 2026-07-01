@@ -194,7 +194,7 @@ def run_python(context: list[float], horizon: int) -> np.ndarray | None:
 
     for step in range(horizon):
         normed = rms_norm(last_h, norm_f_w)
-        mu_val = float(normed @ mu_w.T + mu_b)
+        mu_val = (normed @ mu_w.T + mu_b).item()
         preds.append(mu_val * scale + loc)
 
         if step == horizon - 1:

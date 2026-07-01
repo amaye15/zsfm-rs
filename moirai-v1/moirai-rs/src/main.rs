@@ -57,8 +57,16 @@ enum Command {
     },
     /// Run Moirai forecasting from a GGUF file.
     ///
-    /// Reads a JSON request from stdin: {"context": [...], "horizon": N}
-    /// Outputs a JSON forecast in OpenAI-compatible format.
+    /// Reads a JSON request from stdin.
+    ///
+    /// Univariate batch:
+    ///   {"context": [[t0, t1, ...], [t0, t1, ...]], "horizon": N}
+    ///
+    /// Multivariate batch (channel-independent per variate):
+    ///   {"context": [[[v0_t0, v0_t1, ...], [v1_t0, v1_t1, ...]], ...], "horizon": N}
+    ///
+    /// Univariate output has "point"/"quantiles" in each choice.
+    /// Multivariate output has "variates": [{"point":..., "quantiles":...}, ...].
     Infer {
         #[arg(short, long, default_value = "gguf/moirai-f32.gguf")]
         gguf: PathBuf,
@@ -122,56 +130,132 @@ async fn main() -> anyhow::Result<()> {
             let mut buf = String::new();
             std::io::stdin().read_to_string(&mut buf).context("read stdin")?;
             let req: serde_json::Value = serde_json::from_str(&buf).context("parse JSON input")?;
-            let contexts = parse_contexts(req["context"].clone())?;
+            let contexts = parse_mv_contexts(req["context"].clone())?;
             let horizon: usize = req["horizon"].as_u64().context("horizon must be a positive integer")? as usize;
             let config = MoiraiConfig::default();
 
             eprintln!("Loading model from {} …", gguf.display());
             let model = MoiraiModel::load(&gguf, config).context("load model")?;
 
-            let mut fc_choices = Vec::new();
-            for ctx in &contexts {
-                anyhow::ensure!(!ctx.is_empty(), "context series must not be empty");
-                let point = model.forecast(ctx, horizon).context("forecast")?;
-                fc_choices.push((point, BTreeMap::<String, Vec<f32>>::new()));
+            let mut fc_outputs: Vec<ForecastOutput> = Vec::new();
+            let mut total_ctx: usize = 0;
+
+            for raw_variates in &contexts {
+                let n_var = raw_variates.len();
+                anyhow::ensure!(n_var > 0, "each context must have at least one variate");
+
+                if n_var == 1 {
+                    let ctx = &raw_variates[0];
+                    anyhow::ensure!(!ctx.is_empty(), "context series must not be empty");
+                    total_ctx += ctx.len();
+                    let point = model.forecast(ctx, horizon).context("forecast")?;
+                    fc_outputs.push(ForecastOutput::Univariate {
+                        point,
+                        quantiles: BTreeMap::new(),
+                    });
+                } else {
+                    let mut var_forecasts: Vec<VariateForecast> = Vec::with_capacity(n_var);
+                    for (vi, ctx) in raw_variates.iter().enumerate() {
+                        anyhow::ensure!(!ctx.is_empty(), "variate {vi} context must not be empty");
+                        total_ctx += ctx.len();
+                        let point = model.forecast(ctx, horizon)
+                            .with_context(|| format!("forecast variate {vi}"))?;
+                        var_forecasts.push(VariateForecast { point, quantiles: BTreeMap::new() });
+                    }
+                    fc_outputs.push(ForecastOutput::Multivariate { variates: var_forecasts });
+                }
             }
-            let total_ctx: usize = contexts.iter().map(|c| c.len()).sum();
-            println!("{}", forecast_json("moirai", total_ctx, horizon, fc_choices)?);
+
+            println!("{}", forecast_json("moirai", total_ctx, horizon, fc_outputs)?);
         }
     }
 
     Ok(())
 }
 
-fn parse_contexts(val: serde_json::Value) -> anyhow::Result<Vec<Vec<f32>>> {
+// ---------------------------------------------------------------------------
+// JSON output types
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize)]
+#[serde(untagged)]
+enum ForecastOutput {
+    Univariate {
+        point: Vec<f32>,
+        quantiles: BTreeMap<String, Vec<f32>>,
+    },
+    Multivariate {
+        variates: Vec<VariateForecast>,
+    },
+}
+
+#[derive(Serialize)]
+struct VariateForecast {
+    point: Vec<f32>,
+    quantiles: BTreeMap<String, Vec<f32>>,
+}
+
+// ---------------------------------------------------------------------------
+// JSON input parsing
+// ---------------------------------------------------------------------------
+
+/// Parse the `context` field into [batch][variate][time].
+///
+/// Accepted shapes:
+///   [t0, t1, ...]                    → batch=1, n_var=1 (flat single series)
+///   [[t0, t1, ...], ...]             → batch=N, n_var=1 (batch of univariate)
+///   [[[v0_t0, ...], [v1_t0, ...]], ...] → batch=N, n_var=M (batch of multivariate)
+fn parse_mv_contexts(val: serde_json::Value) -> anyhow::Result<Vec<Vec<Vec<f32>>>> {
     match val {
         serde_json::Value::Array(arr) if arr.is_empty() => {
             anyhow::bail!("context must be a non-empty array")
         }
         serde_json::Value::Array(arr) => {
-            if arr.first().map(|v| v.is_array()).unwrap_or(false) {
+            let first = arr.first().unwrap();
+            if !first.is_array() {
+                // Flat: [t0, t1, ...] → batch=1, n_var=1
+                let ctx = serde_json::from_value::<Vec<f32>>(serde_json::Value::Array(arr))
+                    .context("context must be a JSON array of numbers")?;
+                Ok(vec![vec![ctx]])
+            } else if first
+                .as_array()
+                .and_then(|a| a.first())
+                .map(|v| v.is_array())
+                .unwrap_or(false)
+            {
+                // 3D: [batch][variate][time]
                 arr.into_iter()
                     .enumerate()
-                    .map(|(i, v)| {
-                        serde_json::from_value::<Vec<f32>>(v)
-                            .with_context(|| format!("context[{i}] must be an array of numbers"))
+                    .map(|(i, batch_item)| {
+                        serde_json::from_value::<Vec<Vec<f32>>>(batch_item)
+                            .with_context(|| format!("context[{i}] must be an array of variate arrays"))
                     })
                     .collect()
             } else {
-                let ctx = serde_json::from_value::<Vec<f32>>(serde_json::Value::Array(arr))
-                    .context("context must be a JSON array of numbers")?;
-                Ok(vec![ctx])
+                // 2D: [batch][time] → each series is n_var=1
+                arr.into_iter()
+                    .enumerate()
+                    .map(|(i, v)| {
+                        let series = serde_json::from_value::<Vec<f32>>(v)
+                            .with_context(|| format!("context[{i}] must be an array of numbers"))?;
+                        Ok(vec![series])
+                    })
+                    .collect()
             }
         }
         _ => anyhow::bail!("context must be a JSON array"),
     }
 }
 
+// ---------------------------------------------------------------------------
+// JSON response serialisation
+// ---------------------------------------------------------------------------
+
 fn forecast_json(
     model_name: &str,
     context_length: usize,
     forecast_length: usize,
-    fc_choices: Vec<(Vec<f32>, BTreeMap<String, Vec<f32>>)>,
+    fc_outputs: Vec<ForecastOutput>,
 ) -> anyhow::Result<String> {
     #[derive(Serialize)]
     struct ForecastResponse {
@@ -189,11 +273,6 @@ fn forecast_json(
         finish_reason: &'static str,
     }
     #[derive(Serialize)]
-    struct ForecastOutput {
-        point: Vec<f32>,
-        quantiles: BTreeMap<String, Vec<f32>>,
-    }
-    #[derive(Serialize)]
     struct Usage {
         context_length: usize,
         forecast_length: usize,
@@ -209,12 +288,12 @@ fn forecast_json(
         object: "forecast",
         created,
         model: model_name.to_string(),
-        choices: fc_choices.into_iter().enumerate().map(|(i, (point, quantiles))| Choice {
+        choices: fc_outputs.into_iter().enumerate().map(|(i, forecast)| Choice {
             index: i,
-            forecast: ForecastOutput { point, quantiles },
+            forecast,
             finish_reason: "stop",
         }).collect(),
-        usage: Usage { context_length, forecast_length },
+        usage: Usage { context_length: context_length, forecast_length },
     };
 
     Ok(serde_json::to_string_pretty(&resp)?)

@@ -360,12 +360,12 @@ impl Moirai2Model {
     ) -> Result<Tensor> {
         let new_len = new_time_ids.len();
         for (li, blk) in self.blocks.iter().enumerate() {
+            // decode_block_kv returns the extended K/V (old cache + new tokens).
+            // Store directly — no second Tensor::cat needed.
             let (h_out, k_new, v_new) =
                 self.decode_block_kv(h, blk, &kv_cache[li], new_time_ids, new_len, cached_len)?;
             h = h_out;
-            let k_full = Tensor::cat(&[&kv_cache[li].0, &k_new], 1)?;
-            let v_full = Tensor::cat(&[&kv_cache[li].1, &v_new], 1)?;
-            kv_cache[li] = (k_full, v_full);
+            kv_cache[li] = (k_new, v_new);
         }
         Ok(h)
     }
@@ -420,13 +420,13 @@ impl Moirai2Model {
         let q = apply_partial_rope(&q, new_time_ids, n_heads, head_dim, rope_dim, &self.device, &self.rope_cos, &self.rope_sin)?;
         let k = apply_partial_rope(&k, new_time_ids, n_heads, head_dim, rope_dim, &self.device, &self.rope_cos, &self.rope_sin)?;
 
-        // Concat new K/V with cache for attention
-        let k_full = Tensor::cat(&[&cache.0, &k], 1)?; // [n_heads, cached+new_len, head_dim]
+        // Extend cache: [n_heads, cached+new_len, head_dim].
+        // Return k_full/v_full so the caller can store them directly without a second cat.
+        let k_full = Tensor::cat(&[&cache.0, &k], 1)?;
         let v_full = Tensor::cat(&[&cache.1, &v], 1)?;
 
-        let total_len = cached_len + new_len;
         let scale = (head_dim as f64).sqrt();
-        let scores = q.matmul(&k_full.permute((0, 2, 1))?)?; // [n_heads, new_len, total_len]
+        let scores = q.matmul(&k_full.permute((0, 2, 1))?)?; // [n_heads, new_len, cached+new_len]
         let scores = (scores / scale)?;
         let scores = add_decode_causal_mask(&scores, new_len, cached_len, n_heads, &self.device)?;
         let scores = scores.broadcast_add(&blk.attn_vbias_t)?;
@@ -434,7 +434,7 @@ impl Moirai2Model {
         let attn = candle_nn::ops::softmax_last_dim(&scores)?;
         let out = attn.matmul(&v_full)?; // [n_heads, new_len, head_dim]
         let out = out.permute((1, 0, 2))?.contiguous()?.reshape((new_len, d_model))?;
-        Ok((linear_nobias(&out, &blk.attn_o_w)?, k, v))
+        Ok((linear_nobias(&out, &blk.attn_o_w)?, k_full, v_full))
     }
 }
 

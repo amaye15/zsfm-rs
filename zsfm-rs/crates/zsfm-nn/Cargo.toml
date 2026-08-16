@@ -1,0 +1,12 @@
+[package]
+name = "zsfm-nn"
+version.workspace = true
+edition.workspace = true
+description = "Shared candle tensor primitives (GGUF tensor loading, linear/norm/mask/FFN ops) reused across every zsfm model crate's inference path."
+
+[dependencies]
+anyhow.workspace = true
+candle-core.workspace = true
+
+[lib]
+path = "src/lib.rs"

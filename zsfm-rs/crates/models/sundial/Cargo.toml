@@ -1,0 +1,22 @@
+[package]
+name = "zsfm-sundial"
+version.workspace = true
+edition.workspace = true
+description = "Sundial / Timer v3 (thuml) zero-shot time-series forecaster: GGUF conversion + candle flow-matching inference."
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+safetensors.workspace = true
+byteorder.workspace = true
+indicatif.workspace = true
+candle-core.workspace = true
+candle-nn.workspace = true
+zsfm-core = { path = "../../zsfm-core" }
+zsfm-nn = { path = "../../zsfm-nn" }
+zsfm-gguf = { path = "../../zsfm-gguf" }
+zsfm-hub = { path = "../../zsfm-hub" }
+
+[lib]
+path = "src/lib.rs"

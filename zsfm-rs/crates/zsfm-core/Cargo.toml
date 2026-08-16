@@ -1,0 +1,10 @@
+[package]
+name = "zsfm-core"
+version.workspace = true
+edition.workspace = true
+description = "Shared traits, request/response JSON envelope, and config helpers used by every zsfm model crate."
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true

@@ -1,0 +1,38 @@
+[package]
+name = "zsfm-cli"
+version.workspace = true
+edition.workspace = true
+description = "Single CLI (convert / infer / upload) for every zsfm model, replacing the 11 per-model binaries."
+
+[[bin]]
+name = "zsfm"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+safetensors.workspace = true
+candle-core.workspace = true
+zsfm-core = { path = "../zsfm-core" }
+zsfm-gguf = { path = "../zsfm-gguf" }
+zsfm-hub = { path = "../zsfm-hub" }
+zsfm-checkpoint = { path = "../zsfm-checkpoint" }
+zsfm-toto = { path = "../models/toto" }
+zsfm-tabfm = { path = "../models/tabfm" }
+zsfm-mitra = { path = "../models/mitra" }
+zsfm-tabdpt = { path = "../models/tabdpt" }
+zsfm-tabicl = { path = "../models/tabicl" }
+zsfm-tabpfn = { path = "../models/tabpfn" }
+zsfm-chronos = { path = "../models/chronos" }
+zsfm-timesfm = { path = "../models/timesfm" }
+zsfm-sundial = { path = "../models/sundial" }
+zsfm-ttm = { path = "../models/ttm" }
+zsfm-lag-llama = { path = "../models/lag_llama" }
+zsfm-moment = { path = "../models/moment" }
+zsfm-moirai = { path = "../models/moirai" }
+zsfm-moirai2 = { path = "../models/moirai2" }
+zsfm-flowstate = { path = "../models/flowstate" }
+zsfm-tirex = { path = "../models/tirex" }

@@ -1,0 +1,18 @@
+[package]
+name = "zsfm-checkpoint"
+version.workspace = true
+edition.workspace = true
+description = "Format-agnostic checkpoint reader (safetensors / PyTorch pickle / npy / npz / GGUF) + dtype casting, feeding the shared GGUF writer."
+
+[dependencies]
+anyhow.workspace = true
+serde_json.workspace = true
+safetensors.workspace = true
+candle-core.workspace = true
+half = "2"
+hdf5 = { package = "hdf5-metno", version = "0.10", features = ["static", "f16"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
+zsfm-gguf = { path = "../zsfm-gguf" }
+
+[lib]
+path = "src/lib.rs"

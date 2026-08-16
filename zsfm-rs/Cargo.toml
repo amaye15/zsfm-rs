@@ -28,8 +28,35 @@ members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
+repository = "https://github.com/amaye15/zero-shot-forecasters-gguf"
 
 [workspace.dependencies]
+# Internal crates (path + version, so `cargo publish` accepts them as real
+# dependencies rather than dev-only path links). Keep this list's names/paths
+# in sync with `members` above; version is inherited from [workspace.package].
+zsfm-core = { path = "crates/zsfm-core", version = "0.1.0" }
+zsfm-gguf = { path = "crates/zsfm-gguf", version = "0.1.0" }
+zsfm-hub = { path = "crates/zsfm-hub", version = "0.1.0" }
+zsfm-nn = { path = "crates/zsfm-nn", version = "0.1.0" }
+zsfm-checkpoint = { path = "crates/zsfm-checkpoint", version = "0.1.0" }
+zsfm-toto = { path = "crates/models/toto", version = "0.1.0" }
+zsfm-tabfm = { path = "crates/models/tabfm", version = "0.1.0" }
+zsfm-mitra = { path = "crates/models/mitra", version = "0.1.0" }
+zsfm-tabdpt = { path = "crates/models/tabdpt", version = "0.1.0" }
+zsfm-tabicl = { path = "crates/models/tabicl", version = "0.1.0" }
+zsfm-tabpfn = { path = "crates/models/tabpfn", version = "0.1.0" }
+zsfm-chronos = { path = "crates/models/chronos", version = "0.1.0" }
+zsfm-timesfm = { path = "crates/models/timesfm", version = "0.1.0" }
+zsfm-sundial = { path = "crates/models/sundial", version = "0.1.0" }
+zsfm-ttm = { path = "crates/models/ttm", version = "0.1.0" }
+zsfm-lag-llama = { path = "crates/models/lag_llama", version = "0.1.0" }
+zsfm-moment = { path = "crates/models/moment", version = "0.1.0" }
+zsfm-moirai = { path = "crates/models/moirai", version = "0.1.0" }
+zsfm-moirai2 = { path = "crates/models/moirai2", version = "0.1.0" }
+zsfm-flowstate = { path = "crates/models/flowstate", version = "0.1.0" }
+zsfm-tirex = { path = "crates/models/tirex", version = "0.1.0" }
+
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -43,8 +70,13 @@ safetensors = "0.4"
 indicatif = "0.17"
 sha2 = "0.10"
 base64 = "0.22"
-candle-core = { version = "0.8", features = ["accelerate"] }
-candle-nn = { version = "0.8", features = ["accelerate"] }
+# No "accelerate" feature here: it links Apple's Accelerate.framework and only
+# builds on macOS. zsfm-cli turns it on for macOS builds only (see its Cargo.toml)
+# via Cargo's feature unification, which every other crate in the workspace picks
+# up for free when built as part of the `zsfm` binary; standalone `cargo test -p
+# <model-crate>` runs still work everywhere via candle's portable default backend.
+candle-core = "0.8"
+candle-nn = "0.8"
 
 # Shared by every crate in the workspace so the 11 legacy per-model crates'
 # copy-pasted [profile.release] blocks collapse to one definition.

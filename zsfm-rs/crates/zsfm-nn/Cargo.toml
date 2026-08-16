@@ -2,6 +2,8 @@
 name = "zsfm-nn"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
 description = "Shared candle tensor primitives (GGUF tensor loading, linear/norm/mask/FFN ops) reused across every zsfm model crate's inference path."
 
 [dependencies]

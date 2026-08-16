@@ -2,6 +2,8 @@
 name = "zsfm-hub"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
 description = "Shared HuggingFace Hub download/upload client used by every zsfm model crate."
 
 [dependencies]

@@ -2,6 +2,8 @@
 name = "zsfm-gguf"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
 description = "Shared GGUF v3 reader/writer types used by every zsfm model crate."
 
 [dependencies]

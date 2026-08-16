@@ -2,6 +2,8 @@
 name = "zsfm-tabdpt"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
 description = "TabDPT (Layer6/TabDPT) zero-shot tabular foundation model: GGUF conversion + candle in-context-learning inference."
 
 [dependencies]
@@ -13,10 +15,10 @@ byteorder.workspace = true
 indicatif.workspace = true
 candle-core.workspace = true
 candle-nn.workspace = true
-zsfm-core = { path = "../../zsfm-core" }
-zsfm-nn = { path = "../../zsfm-nn" }
-zsfm-gguf = { path = "../../zsfm-gguf" }
-zsfm-hub = { path = "../../zsfm-hub" }
+zsfm-core.workspace = true
+zsfm-nn.workspace = true
+zsfm-gguf.workspace = true
+zsfm-hub.workspace = true
 
 [lib]
 path = "src/lib.rs"

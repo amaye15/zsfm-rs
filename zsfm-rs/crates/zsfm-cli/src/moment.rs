@@ -42,7 +42,7 @@ pub enum Command {
     },
     /// Download MOMENT-1-large from HuggingFace and convert to GGUF.
     Convert {
-        #[arg(short, long, default_value = "moment-research/MOMENT-1-large")]
+        #[arg(short, long, default_value = "AutonLab/MOMENT-1-large")]
         model: String,
         #[arg(short, long, default_value = "gguf/moment-f32.gguf")]
         output: PathBuf,

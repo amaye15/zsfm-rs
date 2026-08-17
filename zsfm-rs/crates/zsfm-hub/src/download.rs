@@ -56,6 +56,15 @@ pub async fn download_model_prefixed(
     model_dir: &Path,
 ) -> anyhow::Result<ModelFiles> {
     let client = build_client(hf_token)?;
+    // Namespace by repo (matching the `owner__name` convention the generic `zsfm convert
+    // --repo` path already uses) so two different repos sharing the generic `config.json` +
+    // `model.safetensors` naming — which is most of them — never collide when a caller passes
+    // the same (often default) `model_dir` for both, whether run sequentially or concurrently.
+    // Without this, the second download's `config.json`/`model.safetensors` would either
+    // silently overwrite the first's files, or worse, get "(cached)" hit on the *wrong* model's
+    // bytes.
+    let model_dir = model_dir.join(repo_id.replace('/', "__"));
+    let model_dir = model_dir.as_path();
     std::fs::create_dir_all(model_dir).context("create model dir")?;
 
     let config_rel = joined(prefix, "config.json");

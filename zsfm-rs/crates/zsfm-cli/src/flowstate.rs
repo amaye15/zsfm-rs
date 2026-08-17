@@ -35,7 +35,7 @@ pub enum Command {
     Infer {
         #[arg(short, long, default_value = "gguf/flowstate-r1-f16.gguf")]
         gguf: PathBuf,
-        #[arg(long, default_value = "models/config.json")]
+        #[arg(long, default_value = "models/ibm-granite__granite-timeseries-flowstate-r1/config.json")]
         config: PathBuf,
     },
     /// Upload source + GGUF files to HuggingFace Hub.

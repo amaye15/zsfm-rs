@@ -42,7 +42,7 @@ pub enum Command {
         gguf: PathBuf,
 
         /// Path to config.json from the original HuggingFace model.
-        #[arg(long, default_value = "models/config.json")]
+        #[arg(long, default_value = "models/Datadog__Toto-2.0-2.5B/config.json")]
         config: PathBuf,
 
         /// Context length fed to the model (must be divisible by patch_size=32).

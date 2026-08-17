@@ -64,7 +64,7 @@ pub enum Command {
         #[arg(short, long, default_value = "gguf/ttm-f32.gguf")]
         gguf: PathBuf,
         /// Path to config.json (original HuggingFace model).
-        #[arg(long, default_value = "models/config.json")]
+        #[arg(long, default_value = "models/ibm-granite__granite-timeseries-ttm-r2/config.json")]
         config: PathBuf,
     },
 }

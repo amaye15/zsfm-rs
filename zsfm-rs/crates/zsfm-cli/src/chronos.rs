@@ -35,7 +35,7 @@ pub enum Command {
     Infer {
         #[arg(short, long, default_value = "gguf/chronos-f16.gguf")]
         gguf: PathBuf,
-        #[arg(long, default_value = "models/config.json")]
+        #[arg(long, default_value = "models/amazon__chronos-2/config.json")]
         config: PathBuf,
     },
     /// Upload source + GGUF files to HuggingFace Hub.

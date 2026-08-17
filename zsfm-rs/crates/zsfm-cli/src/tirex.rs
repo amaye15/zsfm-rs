@@ -90,6 +90,12 @@ pub async fn run(command: Command) -> anyhow::Result<()> {
                 println!("Wrote {}", output.display());
                 return Ok(());
             }
+            // download_file() only creates model_dir itself, not the namespaced
+            // subdirectory canonical_gguf_path() computes — unlike download_model(),
+            // which creates that exact directory as a side effect.
+            if let Some(parent) = canonical.parent() {
+                std::fs::create_dir_all(parent).context("create canonical GGUF dir")?;
+            }
 
             println!("Downloading {model} into {} …", model_dir.display());
             let ckpt_path = zsfm_hub::download_file(&model, "model.ckpt", token.as_deref(), &model_dir)

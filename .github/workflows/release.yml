@@ -13,10 +13,14 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-          - os: macos-13
-            target: x86_64-apple-darwin
           - os: macos-14
             target: aarch64-apple-darwin
+        # macos-13 (x86_64-apple-darwin) was dropped: GitHub's free Intel Mac
+        # runner pool has effectively no capacity left — a build queued for
+        # 10+ hours without starting. Intel Mac users can still build from
+        # source (`cargo build --release -p zsfm-cli` in zsfm-rs). Re-add if
+        # GitHub restores capacity or a self-hosted Intel runner becomes
+        # available.
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

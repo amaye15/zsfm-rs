@@ -42,6 +42,12 @@ pub enum Command {
         root: PathBuf,
     },
     /// Download and convert model weights to GGUF format.
+    ///
+    /// The first conversion downloads the model and writes a canonical F32 GGUF to
+    /// `<cache_dir>/<owner>__<name>/model-f32.gguf`, deleting the (large) downloaded
+    /// weight files afterward. Later conversions (any --dtype) recast from that
+    /// cached F32 GGUF instead of re-downloading — pass --redownload to force a
+    /// fresh download anyway (e.g. the repo was updated).
     Convert {
         #[arg(long, default_value = "google/timesfm-2.5-200m-pytorch")]
         model: String,
@@ -54,6 +60,9 @@ pub enum Command {
         /// Local directory to cache downloaded files.
         #[arg(long, default_value = "models")]
         cache_dir: PathBuf,
+        /// Force a fresh download even if a cached F32 GGUF already exists.
+        #[arg(long)]
+        redownload: bool,
     },
     /// Inspect metadata and tensors stored in a GGUF file directly (no safetensors needed).
     InspectTensors {
@@ -76,8 +85,8 @@ pub async fn run(command: Command) -> Result<()> {
         Command::Upload { repo, token, root } => {
             zsfm_hub::upload_repo(&repo, &token, &root).await?;
         }
-        Command::Convert { model, output, dtype, token, cache_dir } => {
-            cmd_convert(&model, &output, dtype.into(), token.as_deref(), &cache_dir).await?;
+        Command::Convert { model, output, dtype, token, cache_dir, redownload } => {
+            cmd_convert(&model, &output, dtype.into(), token.as_deref(), &cache_dir, redownload).await?;
         }
         Command::InspectTensors { gguf } => cmd_inspect(&gguf)?,
         Command::Infer { gguf } => cmd_infer(&gguf)?,
@@ -91,9 +100,22 @@ async fn cmd_convert(
     output_dtype: GGMLType,
     token: Option<&str>,
     cache_dir: &PathBuf,
+    redownload: bool,
 ) -> Result<()> {
+    let canonical = zsfm_hub::canonical_gguf_path(cache_dir, model);
+    if canonical.exists() && !redownload {
+        println!("Using cached F32 GGUF at {} …", canonical.display());
+        zsfm_checkpoint::recast(&canonical, output, output_dtype)?;
+        println!("Wrote {}", output.display());
+        return Ok(());
+    }
+
     let files = zsfm_hub::download_model(model, token, cache_dir).await?;
     let config = TimesFMConfig::new();
+
+    convert(model, &files, &config, &ConvertOptions { output_dtype: GGMLType::F32 }, &canonical)?;
+    println!("Wrote canonical F32 GGUF to {} …", canonical.display());
+    files.cleanup_weights();
 
     if let Some(parent) = output.parent() {
         if !parent.as_os_str().is_empty() {
@@ -101,8 +123,9 @@ async fn cmd_convert(
                 .with_context(|| format!("create output dir {}", parent.display()))?;
         }
     }
-
-    convert(model, &files, &config, &ConvertOptions { output_dtype }, output)
+    zsfm_checkpoint::recast(&canonical, output, output_dtype)?;
+    println!("Wrote {}", output.display());
+    Ok(())
 }
 
 fn cmd_inspect(gguf_path: &PathBuf) -> Result<()> {

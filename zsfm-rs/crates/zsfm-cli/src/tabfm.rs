@@ -30,6 +30,12 @@ impl TaskArg {
 #[derive(Subcommand)]
 pub enum Command {
     /// Download one TabFM variant from HuggingFace and convert to GGUF.
+    ///
+    /// The first conversion downloads the model and writes a canonical F32 GGUF
+    /// alongside it, deleting the (large) downloaded weight file afterward. Later
+    /// conversions (any --dtype) recast from that cached F32 GGUF instead of
+    /// re-downloading — pass --redownload to force a fresh download anyway (e.g.
+    /// the repo was updated).
     Convert {
         #[arg(short, long, default_value = "google/tabfm-1.0.0-pytorch")]
         model: String,
@@ -44,6 +50,9 @@ pub enum Command {
         model_dir: PathBuf,
         #[arg(long, env = "HF_TOKEN")]
         token: Option<String>,
+        /// Force a fresh download even if a cached F32 GGUF already exists.
+        #[arg(long)]
+        redownload: bool,
     },
     /// Print all tensor names in a local safetensors file.
     InspectTensors {
@@ -71,7 +80,7 @@ pub enum Command {
     Infer {
         #[arg(short, long)]
         gguf: PathBuf,
-        #[arg(long, default_value = "models/tabfm-classification/classification_config.json")]
+        #[arg(long, default_value = "models/tabfm-classification/google__tabfm-1.0.0-pytorch/classification_config.json")]
         config: PathBuf,
     },
     /// Full sklearn-wrapper-equivalent pipeline: feature scaling, categorical encoding, and
@@ -94,7 +103,7 @@ pub enum Command {
     EnsemblePredict {
         #[arg(short, long)]
         gguf: PathBuf,
-        #[arg(long, default_value = "models/tabfm-classification/classification_config.json")]
+        #[arg(long, default_value = "models/tabfm-classification/google__tabfm-1.0.0-pytorch/classification_config.json")]
         config: PathBuf,
         /// Worker threads for the ensemble-member/OOF-fold parallel loops (default: rayon's own
         /// default, i.e. all logical cores, or the `RAYON_NUM_THREADS` env var if set). On some
@@ -149,9 +158,19 @@ pub async fn run(command: Command) -> anyhow::Result<()> {
             zsfm_hub::upload_repo(&repo, &token, &root).await?;
         }
 
-        Command::Convert { model, task, output, dtype, model_dir, token } => {
+        Command::Convert { model, task, output, dtype, model_dir, token, redownload } => {
             let task_str = task.as_str();
             let variant_dir = model_dir.join(format!("tabfm-{task_str}"));
+            let output = output.unwrap_or_else(|| PathBuf::from(format!("gguf/tabfm-{task_str}-{}.gguf", dtype_name(&dtype))));
+            let canonical = zsfm_hub::canonical_gguf_path(&variant_dir, &model);
+
+            if canonical.exists() && !redownload {
+                println!("Using cached F32 GGUF at {} …", canonical.display());
+                zsfm_checkpoint::recast(&canonical, &output, dtype.into())?;
+                println!("Wrote {}", output.display());
+                return Ok(());
+            }
+
             println!("Downloading {model} ({task_str}) into {} …", variant_dir.display());
             let files = zsfm_hub::download_model_prefixed(&model, task_str, token.as_deref(), &variant_dir)
                 .await
@@ -168,9 +187,12 @@ pub async fn run(command: Command) -> anyhow::Result<()> {
                 config.is_classifier, config.embed_dim, config.col_num_blocks, config.row_num_blocks, config.icl_num_blocks,
             );
 
-            let output = output.unwrap_or_else(|| PathBuf::from(format!("gguf/tabfm-{task_str}-{}.gguf", dtype_name(&dtype))));
-            let opts = ConvertOptions { output_dtype: dtype.into() };
-            convert(&model, safetensors_path, &config, &opts, &output)?;
+            let f32_opts = ConvertOptions { output_dtype: GGMLType::F32 };
+            convert(&model, safetensors_path, &config, &f32_opts, &canonical)?;
+            println!("Wrote canonical F32 GGUF to {} …", canonical.display());
+            files.cleanup_weights();
+
+            zsfm_checkpoint::recast(&canonical, &output, dtype.into())?;
             println!("Wrote {}", output.display());
         }
 

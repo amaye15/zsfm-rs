@@ -39,6 +39,12 @@ impl From<DtypeArg> for GGMLType {
 pub enum Command {
     /// Download TabDPT (one checkpoint serves both classification and regression) from
     /// HuggingFace and convert to GGUF.
+    ///
+    /// The first conversion downloads the model and writes a canonical F32 GGUF
+    /// alongside it, deleting the downloaded safetensors file afterward. Later
+    /// conversions (any --dtype) recast from that cached F32 GGUF instead of
+    /// re-downloading — pass --redownload to force a fresh download anyway (e.g.
+    /// the repo was updated).
     Convert {
         #[arg(short, long, default_value = "Layer6/TabDPT")]
         model: String,
@@ -52,6 +58,9 @@ pub enum Command {
         model_dir: PathBuf,
         #[arg(long, env = "HF_TOKEN")]
         token: Option<String>,
+        /// Force a fresh download even if a cached F32 GGUF already exists.
+        #[arg(long)]
+        redownload: bool,
     },
     /// Print all tensor names in a local safetensors file.
     InspectTensors { path: PathBuf },
@@ -94,16 +103,29 @@ pub async fn run(command: Command) -> anyhow::Result<()> {
             zsfm_hub::upload_repo(&repo, &token, &root).await?;
         }
 
-        Command::Convert { model, filename, output, dtype, model_dir, token } => {
+        Command::Convert { model, filename, output, dtype, model_dir, token, redownload } => {
+            let output = output.unwrap_or_else(|| PathBuf::from(format!("gguf/tabdpt-{}.gguf", dtype_name(&dtype))));
+            let canonical = zsfm_hub::canonical_gguf_path(&model_dir, &model);
+
+            if canonical.exists() && !redownload {
+                println!("Using cached F32 GGUF at {} …", canonical.display());
+                zsfm_checkpoint::recast(&canonical, &output, dtype.into())?;
+                println!("Wrote {}", output.display());
+                return Ok(());
+            }
+
             println!("Downloading {model}/{filename} into {} …", model_dir.display());
             let path = zsfm_hub::download_file(&model, &filename, token.as_deref(), &model_dir)
                 .await
                 .context("download failed")?;
 
             let config = TabDptConfig::default_v1_2();
-            let output = output.unwrap_or_else(|| PathBuf::from(format!("gguf/tabdpt-{}.gguf", dtype_name(&dtype))));
-            let opts = ConvertOptions { output_dtype: dtype.into() };
-            convert(std::slice::from_ref(&path), &config, &opts, &output)?;
+            let f32_opts = ConvertOptions { output_dtype: GGMLType::F32 };
+            convert(std::slice::from_ref(&path), &config, &f32_opts, &canonical)?;
+            println!("Wrote canonical F32 GGUF to {} …", canonical.display());
+            let _ = std::fs::remove_file(&path);
+
+            zsfm_checkpoint::recast(&canonical, &output, dtype.into())?;
             println!("Wrote {}", output.display());
         }
 

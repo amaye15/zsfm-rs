@@ -44,6 +44,12 @@ pub enum Command {
     ///
     /// Downloads model.ckpt and reads it directly via candle's pickle reader —
     /// no Python or intermediate extraction step required.
+    ///
+    /// The first conversion downloads the model and writes a canonical F32 GGUF to
+    /// `<model_dir>/<owner>__<name>/model-f32.gguf`, deleting the downloaded .ckpt
+    /// afterward. Later conversions (any --dtype) recast from that cached F32 GGUF
+    /// instead of re-downloading — pass --redownload to force a fresh download
+    /// anyway (e.g. the repo was updated).
     Convert {
         #[arg(short, long, default_value = "NX-AI/TiRex")]
         model: String,
@@ -55,6 +61,9 @@ pub enum Command {
         model_dir: PathBuf,
         #[arg(long, env = "HF_TOKEN")]
         token: Option<String>,
+        /// Force a fresh download even if a cached F32 GGUF already exists.
+        #[arg(long)]
+        redownload: bool,
     },
     /// Run TiRex forecasting from a GGUF file. Univariate only.
     ///
@@ -73,15 +82,28 @@ pub async fn run(command: Command) -> anyhow::Result<()> {
             zsfm_hub::upload_repo(&repo, &token, &root).await?;
         }
 
-        Command::Convert { model, output, dtype, model_dir, token } => {
+        Command::Convert { model, output, dtype, model_dir, token, redownload } => {
+            let canonical = zsfm_hub::canonical_gguf_path(&model_dir, &model);
+            if canonical.exists() && !redownload {
+                println!("Using cached F32 GGUF at {} …", canonical.display());
+                zsfm_checkpoint::recast(&canonical, &output, dtype.into())?;
+                println!("Wrote {}", output.display());
+                return Ok(());
+            }
+
             println!("Downloading {model} into {} …", model_dir.display());
             let ckpt_path = zsfm_hub::download_file(&model, "model.ckpt", token.as_deref(), &model_dir)
                 .await
                 .context("download failed")?;
 
             let config = TiRexConfig::default_from_ckpt();
-            let opts = ConvertOptions { output_dtype: dtype.into() };
-            convert(&ckpt_path, &config, &opts, &output)?;
+            let f32_opts = ConvertOptions { output_dtype: GGMLType::F32 };
+            convert(&ckpt_path, &config, &f32_opts, &canonical)?;
+            println!("Wrote canonical F32 GGUF to {} …", canonical.display());
+            let _ = std::fs::remove_file(&ckpt_path);
+
+            zsfm_checkpoint::recast(&canonical, &output, dtype.into())?;
+            println!("Wrote {}", output.display());
         }
 
         Command::Infer { gguf } => {

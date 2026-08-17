@@ -41,6 +41,12 @@ pub enum Command {
         root: PathBuf,
     },
     /// Download and convert model to GGUF.
+    ///
+    /// The first conversion downloads the model and writes a canonical F32 GGUF to
+    /// `<cache_dir>/<owner>__<name>/model-f32.gguf`, deleting the (large) downloaded
+    /// weight files afterward. Later conversions (any --dtype) recast from that
+    /// cached F32 GGUF instead of re-downloading — pass --redownload to force a
+    /// fresh download anyway (e.g. the repo was updated).
     Convert {
         #[arg(short, long, default_value = "thuml/sundial-base-128m")]
         model: String,
@@ -52,6 +58,9 @@ pub enum Command {
         token: Option<String>,
         #[arg(long, default_value = "models")]
         cache_dir: PathBuf,
+        /// Force a fresh download even if a cached F32 GGUF already exists.
+        #[arg(long)]
+        redownload: bool,
     },
     /// Run inference on a GGUF model. Univariate, point-forecast only (flow-matching).
     ///
@@ -79,15 +88,28 @@ pub async fn run(command: Command) -> anyhow::Result<()> {
             zsfm_hub::upload_repo(&repo, &token, &root).await?;
         }
 
-        Command::Convert { model, output, dtype, token, cache_dir } => {
+        Command::Convert { model, output, dtype, token, cache_dir, redownload } => {
             let output_dtype: GGMLType = dtype.into();
+            let canonical = zsfm_hub::canonical_gguf_path(&cache_dir, &model);
+            if canonical.exists() && !redownload {
+                println!("Using cached F32 GGUF at {} …", canonical.display());
+                zsfm_checkpoint::recast(&canonical, &output, output_dtype)?;
+                println!("Wrote {}", output.display());
+                return Ok(());
+            }
+
             let files = zsfm_hub::download_model(&model, token.as_deref(), &cache_dir).await?;
 
             let config_str = std::fs::read_to_string(&files.config_json)
                 .with_context(|| format!("read {}", files.config_json.display()))?;
             let config: SundialConfig = serde_json::from_str(&config_str).context("parse config.json")?;
 
-            convert(&model, &files, &config, &ConvertOptions { output_dtype }, &output)?;
+            convert(&model, &files, &config, &ConvertOptions { output_dtype: GGMLType::F32 }, &canonical)?;
+            println!("Wrote canonical F32 GGUF to {} …", canonical.display());
+            files.cleanup_weights();
+
+            zsfm_checkpoint::recast(&canonical, &output, output_dtype)?;
+            println!("Wrote {}", output.display());
         }
 
         Command::Infer { gguf, steps } => {

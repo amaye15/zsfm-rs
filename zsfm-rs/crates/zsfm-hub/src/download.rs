@@ -19,6 +19,29 @@ pub struct ModelFiles {
     pub safetensors_shards: Vec<PathBuf>,
 }
 
+impl ModelFiles {
+    /// Delete the (potentially large) weight shards once they've been converted into a
+    /// GGUF, leaving `config_json` in place — several `infer` commands read it directly
+    /// (architecture parameters not embedded in the GGUF), and it's tiny, so there's no
+    /// disk-space reason to remove it. Best-effort: a failed delete is not fatal, since
+    /// the GGUF conversion has already succeeded by the time this is called.
+    pub fn cleanup_weights(&self) {
+        for f in &self.safetensors_shards {
+            if let Err(e) = std::fs::remove_file(f) {
+                eprintln!("warning: could not remove {}: {e}", f.display());
+            }
+        }
+    }
+}
+
+/// Where the canonical, always-F32 GGUF for `repo_id` lives once converted once. Every
+/// per-model `convert` command checks this path first: if present, it recasts straight
+/// from this cached GGUF to whatever dtype was requested instead of re-downloading and
+/// re-converting from HuggingFace.
+pub fn canonical_gguf_path(model_dir: &Path, repo_id: &str) -> PathBuf {
+    model_dir.join(repo_id.replace('/', "__")).join("model-f32.gguf")
+}
+
 /// Download (or locate from cache) `config.json` + `model.safetensors[.index.json]`
 /// for `repo_id` into `model_dir`.
 pub async fn download_model(

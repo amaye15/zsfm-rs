@@ -150,8 +150,8 @@ impl TiRexModel {
     /// Forecast quantiles and mean for a single time series.
     ///
     /// Returns `(quantiles, mean)` where:
-    /// - `quantiles`: [prediction_length, num_quantiles] in the config's quantile order
-    /// - `mean`: [prediction_length] (median / 0.5 quantile)
+    /// - `quantiles`: `[prediction_length, num_quantiles]` in the config's quantile order
+    /// - `mean`: `[prediction_length]` (median / 0.5 quantile)
     pub fn forecast(&self, context: &[f32], prediction_length: usize) -> Result<(Vec<Vec<f32>>, Vec<f32>)> {
         let cfg = &self.config;
         let patch_size = cfg.patch_size;

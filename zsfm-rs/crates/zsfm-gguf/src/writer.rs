@@ -20,8 +20,8 @@ struct TensorInfo {
 
 /// Streaming GGUF v3 writer.
 ///
-/// Call [`add_metadata`] for every key-value pair, then [`add_tensor`] for
-/// every tensor, then [`write_to`] to flush the complete file.
+/// Call [`Self::add_metadata`] for every key-value pair, then [`Self::add_tensor`] for
+/// every tensor, then [`Self::write_to`] to flush the complete file.
 pub struct GGUFWriter {
     metadata: Vec<(String, GGUFMetaValue)>,
     tensors: Vec<TensorInfo>,

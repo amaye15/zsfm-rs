@@ -63,7 +63,7 @@ pub struct ConvertArgs {
     /// With --repo: HuggingFace API token, for gated/private repos.
     #[arg(long, env = "HF_TOKEN", requires = "repo")]
     pub token: Option<String>,
-    /// With --repo: directory to download into. Default: models/<owner>__<name>.
+    /// With --repo: directory to download into. Default: models/`<owner>__<name>`.
     #[arg(long, requires = "repo")]
     pub model_dir: Option<PathBuf>,
     /// Output GGUF path.
@@ -110,7 +110,7 @@ pub struct PullArgs {
     /// HuggingFace API token, for gated/private repos.
     #[arg(long, env = "HF_TOKEN")]
     pub token: Option<String>,
-    /// Directory to download into. Default: models/<owner>__<name>.
+    /// Directory to download into. Default: models/`<owner>__<name>`.
     #[arg(long)]
     pub model_dir: Option<PathBuf>,
 }

@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>zsfm-rs — API docs</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff;
+    --fg: #1a1a1a;
+    --muted: #666;
+    --card-bg: #f6f6f7;
+    --border: #e2e2e3;
+    --accent: #2563eb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117;
+      --fg: #e6edf3;
+      --muted: #9aa4af;
+      --card-bg: #161b22;
+      --border: #30363d;
+      --accent: #6ea8fe;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 2.5rem 1.25rem 4rem;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.5;
+  }
+  main { max-width: 880px; margin: 0 auto; }
+  h1 { font-size: 1.75rem; margin: 0 0 0.25rem; }
+  p.lede { color: var(--muted); margin: 0 0 2.5rem; max-width: 60ch; }
+  h2 {
+    font-size: 1rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    margin: 2.5rem 0 0.75rem;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.5rem;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 0.75rem;
+  }
+  a.card {
+    display: block;
+    padding: 0.9rem 1rem;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--fg);
+    text-decoration: none;
+    transition: border-color 0.15s ease;
+  }
+  a.card:hover { border-color: var(--accent); }
+  a.card .name { font-weight: 600; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  a.card .desc { display: block; margin-top: 0.25rem; font-size: 0.85rem; color: var(--muted); }
+  footer { margin-top: 3rem; font-size: 0.85rem; color: var(--muted); }
+  footer a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>zsfm-rs</h1>
+  <p class="lede">Rust workspace for zero-shot forecasting and tabular foundation models — GGUF conversion plus candle inference engines, one <code>zsfm</code> CLI for every model. Generated API docs (rustdoc) for every crate in the workspace.</p>
+
+  <h2>CLI</h2>
+  <div class="grid">
+    <a class="card" href="zsfm/index.html"><span class="name">zsfm-cli</span><span class="desc">The `zsfm` binary — convert / infer / upload for every model</span></a>
+  </div>
+
+  <h2>Shared infrastructure</h2>
+  <div class="grid">
+    <a class="card" href="zsfm_core/index.html"><span class="name">zsfm-core</span><span class="desc">Traits, JSON envelope, config helpers</span></a>
+    <a class="card" href="zsfm_gguf/index.html"><span class="name">zsfm-gguf</span><span class="desc">GGUF reader/writer</span></a>
+    <a class="card" href="zsfm_hub/index.html"><span class="name">zsfm-hub</span><span class="desc">HuggingFace Hub download/upload</span></a>
+    <a class="card" href="zsfm_nn/index.html"><span class="name">zsfm-nn</span><span class="desc">Shared candle tensor primitives</span></a>
+    <a class="card" href="zsfm_checkpoint/index.html"><span class="name">zsfm-checkpoint</span><span class="desc">Format-agnostic checkpoint reader + dtype casting</span></a>
+  </div>
+
+  <h2>Tabular foundation models</h2>
+  <div class="grid">
+    <a class="card" href="zsfm_mitra/index.html"><span class="name">zsfm-mitra</span><span class="desc">AutoGluon Mitra (Tab2D)</span></a>
+    <a class="card" href="zsfm_tabdpt/index.html"><span class="name">zsfm-tabdpt</span><span class="desc">TabDPT</span></a>
+    <a class="card" href="zsfm_tabicl/index.html"><span class="name">zsfm-tabicl</span><span class="desc">TabICL v2</span></a>
+    <a class="card" href="zsfm_tabpfn/index.html"><span class="name">zsfm-tabpfn</span><span class="desc">TabPFN-3 (non-commercial weights)</span></a>
+    <a class="card" href="zsfm_tabfm/index.html"><span class="name">zsfm-tabfm</span><span class="desc">Google TabFM, full ensemble pipeline</span></a>
+  </div>
+
+  <h2>Time-series forecasters</h2>
+  <div class="grid">
+    <a class="card" href="zsfm_toto/index.html"><span class="name">zsfm-toto</span><span class="desc">Datadog Toto-2</span></a>
+    <a class="card" href="zsfm_chronos/index.html"><span class="name">zsfm-chronos</span><span class="desc">Amazon Chronos-2</span></a>
+    <a class="card" href="zsfm_timesfm/index.html"><span class="name">zsfm-timesfm</span><span class="desc">Google TimesFM 2.5</span></a>
+    <a class="card" href="zsfm_sundial/index.html"><span class="name">zsfm-sundial</span><span class="desc">Sundial (flow-matching)</span></a>
+    <a class="card" href="zsfm_ttm/index.html"><span class="name">zsfm-ttm</span><span class="desc">IBM Granite TTM</span></a>
+    <a class="card" href="zsfm_lag_llama/index.html"><span class="name">zsfm-lag-llama</span><span class="desc">Lag-Llama</span></a>
+    <a class="card" href="zsfm_moment/index.html"><span class="name">zsfm-moment</span><span class="desc">MOMENT-1-large</span></a>
+    <a class="card" href="zsfm_moirai/index.html"><span class="name">zsfm-moirai</span><span class="desc">Salesforce Moirai 1.0</span></a>
+    <a class="card" href="zsfm_moirai2/index.html"><span class="name">zsfm-moirai2</span><span class="desc">Salesforce Moirai 2.0</span></a>
+    <a class="card" href="zsfm_flowstate/index.html"><span class="name">zsfm-flowstate</span><span class="desc">IBM Granite FlowState-R1</span></a>
+    <a class="card" href="zsfm_tirex/index.html"><span class="name">zsfm-tirex</span><span class="desc">NX-AI TiRex</span></a>
+  </div>
+
+  <footer>
+    Built from <a href="https://github.com/amaye15/zero-shot-forecasters-gguf">amaye15/zero-shot-forecasters-gguf</a> via <code>cargo doc</code>.
+  </footer>
+</main>
+</body>
+</html>

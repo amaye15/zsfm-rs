@@ -2,7 +2,7 @@
 //!
 //! Architecture: encoder-only with alternating TimeSelfAttention + GroupSelfAttention + FFN.
 //! Key differences from standard T5:
-//! * Standard Llama RoPE (rotate_half = [-x[half:], x[:half]])
+//! * Standard Llama RoPE (`rotate_half = [-x[half:], x[:half]]`)
 //! * T5-style RMSNorm (no bias, no mean subtraction)
 //! * No attention scale (scale=1.0 in MHA)
 //! * GroupSelfAttention for batch=1 reduces to position-wise v → o projection

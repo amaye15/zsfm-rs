@@ -26,10 +26,11 @@ See [Time-series forecasters](./models/time-series.md) and [Tabular foundation m
 
 ## Correctness
 
-Every model in this workspace was verified **bit-exact** (or within pure F32 rounding, typically ~1e-6 to ~1e-7) against a reference Python implementation running the real downloaded checkpoint, before being considered done. This isn't a from-scratch reimplementation guessing at architecture — each port was checked tensor-by-tensor against the original.
+Every model in this workspace was verified **bit-exact** (or within pure F32 rounding, typically ~1e-6 to ~1e-7) against a reference Python implementation running the real downloaded checkpoint, before being considered done. This isn't a from-scratch reimplementation guessing at architecture — each port was checked tensor-by-tensor against the original. Every model's page links back to its original HuggingFace weights, the original authors' source repo, and the paper it came from — this project converts and runs those exact weights, it doesn't retrain or approximate them.
 
 ## Where to go next
 
 - New to the project? Start with [Installation](./installation.md) and [Quick start](./quickstart.md).
-- Want the exact JSON shapes for a specific model? Jump straight to [Time-series forecasters](./models/time-series.md) or [Tabular foundation models](./models/tabular.md).
+- Want the exact JSON shapes for a specific model, or a link to its original repo/paper? Jump straight to [Time-series forecasters](./models/time-series.md) or [Tabular foundation models](./models/tabular.md).
+- Three of the 16 models (Moirai, TabPFN-3, TabFM) are **non-commercial only** — see [Licensing](./licensing.md) before using them beyond research/internal evaluation.
 - Looking for the generated Rust API reference (types, function signatures) rather than a usage guide? See the [API docs](../api/index.html).

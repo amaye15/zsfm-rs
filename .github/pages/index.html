@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>zsfm-rs — API docs</title>
+<title>zsfm-rs</title>
 <style>
   :root {
     color-scheme: light dark;
@@ -65,53 +65,86 @@
   a.card .desc { display: block; margin-top: 0.25rem; font-size: 0.85rem; color: var(--muted); }
   footer { margin-top: 3rem; font-size: 0.85rem; color: var(--muted); }
   footer a { color: var(--accent); }
+  .hero-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+  a.hero-card {
+    display: block;
+    padding: 1.25rem 1.5rem;
+    border-radius: 10px;
+    text-decoration: none;
+    border: 1px solid var(--border);
+    transition: border-color 0.15s ease, transform 0.15s ease;
+  }
+  a.hero-card:hover { transform: translateY(-1px); }
+  a.hero-card.primary { background: var(--accent); border-color: var(--accent); }
+  a.hero-card.primary .hero-title { color: #fff; }
+  a.hero-card.primary .hero-desc { color: rgba(255,255,255,0.85); }
+  a.hero-card.secondary { background: var(--card-bg); }
+  a.hero-card.secondary:hover { border-color: var(--accent); }
+  .hero-title { display: block; font-size: 1.1rem; font-weight: 700; margin-bottom: 0.35rem; }
+  .hero-desc { display: block; font-size: 0.9rem; color: var(--muted); }
 </style>
 </head>
 <body>
 <main>
   <h1>zsfm-rs</h1>
-  <p class="lede">Rust workspace for zero-shot forecasting and tabular foundation models — GGUF conversion plus candle inference engines, one <code>zsfm</code> CLI for every model. Generated API docs (rustdoc) for every crate in the workspace.</p>
+  <p class="lede">Rust workspace for zero-shot forecasting and tabular foundation models — GGUF conversion plus candle inference engines, one <code>zsfm</code> CLI for every model.</p>
+
+  <div class="hero-row">
+    <a class="hero-card primary" href="guide/index.html">
+      <span class="hero-title">Guide →</span>
+      <span class="hero-desc">How to install the CLI, convert a model, and run inference — with real request/response examples for every model.</span>
+    </a>
+    <a class="hero-card secondary" href="api/index.html">
+      <span class="hero-title">API reference →</span>
+      <span class="hero-desc">Generated rustdoc for every crate in the workspace.</span>
+    </a>
+  </div>
 
   <h2>CLI</h2>
   <div class="grid">
-    <a class="card" href="zsfm/index.html"><span class="name">zsfm-cli</span><span class="desc">The `zsfm` binary — convert / infer / upload for every model</span></a>
+    <a class="card" href="api/zsfm/index.html"><span class="name">zsfm-cli</span><span class="desc">The `zsfm` binary — convert / infer / upload for every model</span></a>
   </div>
 
   <h2>Shared infrastructure</h2>
   <div class="grid">
-    <a class="card" href="zsfm_core/index.html"><span class="name">zsfm-core</span><span class="desc">Traits, JSON envelope, config helpers</span></a>
-    <a class="card" href="zsfm_gguf/index.html"><span class="name">zsfm-gguf</span><span class="desc">GGUF reader/writer</span></a>
-    <a class="card" href="zsfm_hub/index.html"><span class="name">zsfm-hub</span><span class="desc">HuggingFace Hub download/upload</span></a>
-    <a class="card" href="zsfm_nn/index.html"><span class="name">zsfm-nn</span><span class="desc">Shared candle tensor primitives</span></a>
-    <a class="card" href="zsfm_checkpoint/index.html"><span class="name">zsfm-checkpoint</span><span class="desc">Format-agnostic checkpoint reader + dtype casting</span></a>
+    <a class="card" href="api/zsfm_core/index.html"><span class="name">zsfm-core</span><span class="desc">Traits, JSON envelope, config helpers</span></a>
+    <a class="card" href="api/zsfm_gguf/index.html"><span class="name">zsfm-gguf</span><span class="desc">GGUF reader/writer</span></a>
+    <a class="card" href="api/zsfm_hub/index.html"><span class="name">zsfm-hub</span><span class="desc">HuggingFace Hub download/upload</span></a>
+    <a class="card" href="api/zsfm_nn/index.html"><span class="name">zsfm-nn</span><span class="desc">Shared candle tensor primitives</span></a>
+    <a class="card" href="api/zsfm_checkpoint/index.html"><span class="name">zsfm-checkpoint</span><span class="desc">Format-agnostic checkpoint reader + dtype casting</span></a>
   </div>
 
   <h2>Tabular foundation models</h2>
   <div class="grid">
-    <a class="card" href="zsfm_mitra/index.html"><span class="name">zsfm-mitra</span><span class="desc">AutoGluon Mitra (Tab2D)</span></a>
-    <a class="card" href="zsfm_tabdpt/index.html"><span class="name">zsfm-tabdpt</span><span class="desc">TabDPT</span></a>
-    <a class="card" href="zsfm_tabicl/index.html"><span class="name">zsfm-tabicl</span><span class="desc">TabICL v2</span></a>
-    <a class="card" href="zsfm_tabpfn/index.html"><span class="name">zsfm-tabpfn</span><span class="desc">TabPFN-3 (non-commercial weights)</span></a>
-    <a class="card" href="zsfm_tabfm/index.html"><span class="name">zsfm-tabfm</span><span class="desc">Google TabFM, full ensemble pipeline</span></a>
+    <a class="card" href="api/zsfm_mitra/index.html"><span class="name">zsfm-mitra</span><span class="desc">AutoGluon Mitra (Tab2D)</span></a>
+    <a class="card" href="api/zsfm_tabdpt/index.html"><span class="name">zsfm-tabdpt</span><span class="desc">TabDPT</span></a>
+    <a class="card" href="api/zsfm_tabicl/index.html"><span class="name">zsfm-tabicl</span><span class="desc">TabICL v2</span></a>
+    <a class="card" href="api/zsfm_tabpfn/index.html"><span class="name">zsfm-tabpfn</span><span class="desc">TabPFN-3 (non-commercial weights)</span></a>
+    <a class="card" href="api/zsfm_tabfm/index.html"><span class="name">zsfm-tabfm</span><span class="desc">Google TabFM, full ensemble pipeline</span></a>
   </div>
 
   <h2>Time-series forecasters</h2>
   <div class="grid">
-    <a class="card" href="zsfm_toto/index.html"><span class="name">zsfm-toto</span><span class="desc">Datadog Toto-2</span></a>
-    <a class="card" href="zsfm_chronos/index.html"><span class="name">zsfm-chronos</span><span class="desc">Amazon Chronos-2</span></a>
-    <a class="card" href="zsfm_timesfm/index.html"><span class="name">zsfm-timesfm</span><span class="desc">Google TimesFM 2.5</span></a>
-    <a class="card" href="zsfm_sundial/index.html"><span class="name">zsfm-sundial</span><span class="desc">Sundial (flow-matching)</span></a>
-    <a class="card" href="zsfm_ttm/index.html"><span class="name">zsfm-ttm</span><span class="desc">IBM Granite TTM</span></a>
-    <a class="card" href="zsfm_lag_llama/index.html"><span class="name">zsfm-lag-llama</span><span class="desc">Lag-Llama</span></a>
-    <a class="card" href="zsfm_moment/index.html"><span class="name">zsfm-moment</span><span class="desc">MOMENT-1-large</span></a>
-    <a class="card" href="zsfm_moirai/index.html"><span class="name">zsfm-moirai</span><span class="desc">Salesforce Moirai 1.0</span></a>
-    <a class="card" href="zsfm_moirai2/index.html"><span class="name">zsfm-moirai2</span><span class="desc">Salesforce Moirai 2.0</span></a>
-    <a class="card" href="zsfm_flowstate/index.html"><span class="name">zsfm-flowstate</span><span class="desc">IBM Granite FlowState-R1</span></a>
-    <a class="card" href="zsfm_tirex/index.html"><span class="name">zsfm-tirex</span><span class="desc">NX-AI TiRex</span></a>
+    <a class="card" href="api/zsfm_toto/index.html"><span class="name">zsfm-toto</span><span class="desc">Datadog Toto-2</span></a>
+    <a class="card" href="api/zsfm_chronos/index.html"><span class="name">zsfm-chronos</span><span class="desc">Amazon Chronos-2</span></a>
+    <a class="card" href="api/zsfm_timesfm/index.html"><span class="name">zsfm-timesfm</span><span class="desc">Google TimesFM 2.5</span></a>
+    <a class="card" href="api/zsfm_sundial/index.html"><span class="name">zsfm-sundial</span><span class="desc">Sundial (flow-matching)</span></a>
+    <a class="card" href="api/zsfm_ttm/index.html"><span class="name">zsfm-ttm</span><span class="desc">IBM Granite TTM</span></a>
+    <a class="card" href="api/zsfm_lag_llama/index.html"><span class="name">zsfm-lag-llama</span><span class="desc">Lag-Llama</span></a>
+    <a class="card" href="api/zsfm_moment/index.html"><span class="name">zsfm-moment</span><span class="desc">MOMENT-1-large</span></a>
+    <a class="card" href="api/zsfm_moirai/index.html"><span class="name">zsfm-moirai</span><span class="desc">Salesforce Moirai 1.0</span></a>
+    <a class="card" href="api/zsfm_moirai2/index.html"><span class="name">zsfm-moirai2</span><span class="desc">Salesforce Moirai 2.0</span></a>
+    <a class="card" href="api/zsfm_flowstate/index.html"><span class="name">zsfm-flowstate</span><span class="desc">IBM Granite FlowState-R1</span></a>
+    <a class="card" href="api/zsfm_tirex/index.html"><span class="name">zsfm-tirex</span><span class="desc">NX-AI TiRex</span></a>
   </div>
 
   <footer>
-    Built from <a href="https://github.com/amaye15/zero-shot-forecasters-gguf">amaye15/zero-shot-forecasters-gguf</a> via <code>cargo doc</code>.
+    Built from <a href="https://github.com/amaye15/zero-shot-forecasters-gguf">amaye15/zero-shot-forecasters-gguf</a>.
   </footer>
 </main>
 </body>

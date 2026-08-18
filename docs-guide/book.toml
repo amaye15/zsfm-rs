@@ -1,0 +1,16 @@
+[book]
+title = "zsfm-rs Guide"
+description = "How to convert and run zero-shot forecasting and tabular foundation models with the zsfm CLI"
+authors = ["Andrew Mayes"]
+language = "en"
+src = "src"
+
+[output.html]
+git-repository-url = "https://github.com/amaye15/zero-shot-forecasters-gguf"
+edit-url-template = "https://github.com/amaye15/zero-shot-forecasters-gguf/edit/main/docs-guide/{path}"
+default-theme = "light"
+preferred-dark-theme = "navy"
+git-repository-icon = "fab-github"
+
+[output.html.search]
+enable = true

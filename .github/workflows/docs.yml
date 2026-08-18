@@ -32,16 +32,28 @@ jobs:
           RUSTDOCFLAGS: "-D warnings"
         run: cargo doc --workspace --no-deps
 
+      - name: Install mdBook
+        run: curl -sSL https://github.com/rust-lang/mdBook/releases/download/v0.5.4/mdbook-v0.5.4-x86_64-unknown-linux-gnu.tar.gz | tar xz
+
+      - name: mdbook build (usage guide)
+        working-directory: docs-guide
+        run: ../mdbook build
+
       - name: Assemble Pages site
         run: |
-          rm -f zsfm-rs/target/doc/index.html
-          cp .github/pages/index.html zsfm-rs/target/doc/index.html
+          rm -rf site
+          mkdir -p site
+          cp .github/pages/index.html site/index.html
+          mkdir -p site/api
+          cp -r zsfm-rs/target/doc/. site/api/
+          cp .github/pages/api-index.html site/api/index.html
+          cp -r docs-guide/book site/guide
 
       - uses: actions/configure-pages@v5
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: zsfm-rs/target/doc
+          path: site
 
   deploy:
     needs: build

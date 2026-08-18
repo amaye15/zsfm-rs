@@ -29,7 +29,7 @@ members = [
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
-repository = "https://github.com/amaye15/zero-shot-forecasters-gguf"
+repository = "https://github.com/amaye15/zsfm-rs"
 
 [workspace.dependencies]
 # Internal crates (path + version, so `cargo publish` accepts them as real

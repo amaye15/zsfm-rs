@@ -2,7 +2,7 @@
 
 ## This project
 
-The code in this repository (converters, GGUF writer/reader, CLI, inference kernels) is MIT licensed — see [LICENSE](https://github.com/amaye15/zero-shot-forecasters-gguf/blob/main/LICENSE) in the repo root.
+The code in this repository (converters, GGUF writer/reader, CLI, inference kernels) is MIT licensed — see [LICENSE](https://github.com/amaye15/zsfm-rs/blob/main/LICENSE) in the repo root.
 
 ## Model weights
 

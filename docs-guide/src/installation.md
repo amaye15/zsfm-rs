@@ -2,7 +2,7 @@
 
 ## Option 1: download a release binary
 
-Pre-built binaries are published on the [GitHub Releases page](https://github.com/amaye15/zero-shot-forecasters-gguf/releases) for:
+Pre-built binaries are published on the [GitHub Releases page](https://github.com/amaye15/zsfm-rs/releases) for:
 
 - Linux (`x86_64-unknown-linux-gnu`)
 - macOS Apple Silicon (`aarch64-apple-darwin`)
@@ -22,8 +22,8 @@ zsfm --help
 Requires a recent stable Rust toolchain ([rustup.rs](https://rustup.rs)).
 
 ```bash
-git clone https://github.com/amaye15/zero-shot-forecasters-gguf.git
-cd zero-shot-forecasters-gguf/zsfm-rs
+git clone https://github.com/amaye15/zsfm-rs.git
+cd zsfm-rs/zsfm-rs
 cargo build --release -p zsfm-cli
 ./target/release/zsfm --help
 ```

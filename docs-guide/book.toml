@@ -6,8 +6,8 @@ language = "en"
 src = "src"
 
 [output.html]
-git-repository-url = "https://github.com/amaye15/zero-shot-forecasters-gguf"
-edit-url-template = "https://github.com/amaye15/zero-shot-forecasters-gguf/edit/main/docs-guide/{path}"
+git-repository-url = "https://github.com/amaye15/zsfm-rs"
+edit-url-template = "https://github.com/amaye15/zsfm-rs/edit/main/docs-guide/{path}"
 default-theme = "light"
 preferred-dark-theme = "navy"
 git-repository-icon = "fab-github"

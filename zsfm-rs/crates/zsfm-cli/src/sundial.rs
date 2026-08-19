@@ -43,7 +43,7 @@ pub enum Command {
     /// Download and convert model to GGUF.
     ///
     /// The first conversion downloads the model and writes a canonical F32 GGUF to
-    /// `<cache_dir>/<owner>__<name>/model-f32.gguf`, deleting the (large) downloaded
+    /// `<model_dir>/<owner>__<name>/model-f32.gguf`, deleting the (large) downloaded
     /// weight files afterward. Later conversions (any --dtype) recast from that
     /// cached F32 GGUF instead of re-downloading — pass --redownload to force a
     /// fresh download anyway (e.g. the repo was updated).
@@ -57,7 +57,7 @@ pub enum Command {
         #[arg(long, env = "HF_TOKEN")]
         token: Option<String>,
         #[arg(long, default_value = "models")]
-        cache_dir: PathBuf,
+        model_dir: PathBuf,
         /// Force a fresh download even if a cached F32 GGUF already exists.
         #[arg(long)]
         redownload: bool,
@@ -88,9 +88,9 @@ pub async fn run(command: Command) -> anyhow::Result<()> {
             zsfm_hub::upload_repo(&repo, &token, &root).await?;
         }
 
-        Command::Convert { model, output, dtype, token, cache_dir, redownload } => {
+        Command::Convert { model, output, dtype, token, model_dir, redownload } => {
             let output_dtype: GGMLType = dtype.into();
-            let canonical = zsfm_hub::canonical_gguf_path(&cache_dir, &model);
+            let canonical = zsfm_hub::canonical_gguf_path(&model_dir, &model);
             if canonical.exists() && !redownload {
                 println!("Using cached F32 GGUF at {} …", canonical.display());
                 zsfm_checkpoint::recast(&canonical, &output, output_dtype)?;
@@ -98,7 +98,7 @@ pub async fn run(command: Command) -> anyhow::Result<()> {
                 return Ok(());
             }
 
-            let files = zsfm_hub::download_model(&model, token.as_deref(), &cache_dir).await?;
+            let files = zsfm_hub::download_model(&model, token.as_deref(), &model_dir).await?;
 
             let config_str = std::fs::read_to_string(&files.config_json)
                 .with_context(|| format!("read {}", files.config_json.display()))?;

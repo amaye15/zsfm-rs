@@ -9,7 +9,7 @@ Every model gets its own subcommand: `zsfm <model> <action>`. Most models suppor
 | `upload` | Push the source + GGUF files to a HuggingFace repo you control |
 | `inspect-tensors` | Print every tensor name/shape/dtype in a local checkpoint file |
 
-Run `zsfm <model> --help` or `zsfm <model> convert --help` for the full flag list of any specific model — flag names and defaults vary slightly (e.g. `--model-dir` vs `--cache-dir`) but the shape above holds everywhere.
+Run `zsfm <model> --help` or `zsfm <model> convert --help` for the full flag list of any specific model. Every `convert` command takes `--model-dir` (default `models/`, resolved relative to wherever you run `zsfm` from) for where downloaded weights and the canonical F32 GGUF cache are stored.
 
 ## Model caching
 

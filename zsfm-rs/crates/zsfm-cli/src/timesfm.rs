@@ -44,7 +44,7 @@ pub enum Command {
     /// Download and convert model weights to GGUF format.
     ///
     /// The first conversion downloads the model and writes a canonical F32 GGUF to
-    /// `<cache_dir>/<owner>__<name>/model-f32.gguf`, deleting the (large) downloaded
+    /// `<model_dir>/<owner>__<name>/model-f32.gguf`, deleting the (large) downloaded
     /// weight files afterward. Later conversions (any --dtype) recast from that
     /// cached F32 GGUF instead of re-downloading — pass --redownload to force a
     /// fresh download anyway (e.g. the repo was updated).
@@ -59,7 +59,7 @@ pub enum Command {
         token: Option<String>,
         /// Local directory to cache downloaded files.
         #[arg(long, default_value = "models")]
-        cache_dir: PathBuf,
+        model_dir: PathBuf,
         /// Force a fresh download even if a cached F32 GGUF already exists.
         #[arg(long)]
         redownload: bool,
@@ -85,8 +85,8 @@ pub async fn run(command: Command) -> Result<()> {
         Command::Upload { repo, token, root } => {
             zsfm_hub::upload_repo(&repo, &token, &root).await?;
         }
-        Command::Convert { model, output, dtype, token, cache_dir, redownload } => {
-            cmd_convert(&model, &output, dtype.into(), token.as_deref(), &cache_dir, redownload).await?;
+        Command::Convert { model, output, dtype, token, model_dir, redownload } => {
+            cmd_convert(&model, &output, dtype.into(), token.as_deref(), &model_dir, redownload).await?;
         }
         Command::InspectTensors { gguf } => cmd_inspect(&gguf)?,
         Command::Infer { gguf } => cmd_infer(&gguf)?,
@@ -99,10 +99,10 @@ async fn cmd_convert(
     output: &PathBuf,
     output_dtype: GGMLType,
     token: Option<&str>,
-    cache_dir: &PathBuf,
+    model_dir: &PathBuf,
     redownload: bool,
 ) -> Result<()> {
-    let canonical = zsfm_hub::canonical_gguf_path(cache_dir, model);
+    let canonical = zsfm_hub::canonical_gguf_path(model_dir, model);
     if canonical.exists() && !redownload {
         println!("Using cached F32 GGUF at {} …", canonical.display());
         zsfm_checkpoint::recast(&canonical, output, output_dtype)?;
@@ -110,7 +110,7 @@ async fn cmd_convert(
         return Ok(());
     }
 
-    let files = zsfm_hub::download_model(model, token, cache_dir).await?;
+    let files = zsfm_hub::download_model(model, token, model_dir).await?;
     let config = TimesFMConfig::new();
 
     convert(model, &files, &config, &ConvertOptions { output_dtype: GGMLType::F32 }, &canonical)?;

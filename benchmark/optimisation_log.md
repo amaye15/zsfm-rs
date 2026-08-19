@@ -1,7 +1,10 @@
 # Optimisation Log
 
 Tracking before/after results for each optimisation applied to the GGUF inference binaries.
-Canonical measurement: `python benchmark/run_bench.py` across all 21 datasets, context=512, horizon=96, 30 windows.
+Canonical measurement: `zsfm-bench run --dataset <name> --context 512 --horizon 96 --windows 30` (or `zsfm-bench report`
+for all 21 datasets at once) across all 21 datasets, context=512, horizon=96, 30 windows. The historical entries below
+were measured with the old `python benchmark/run_bench.py`, since replaced by the in-process Rust `zsfm-bench` — see
+`zsfm-rs/crates/zsfm-bench`.
 Latency reported as **ms per window** (total elapsed / n_valid_windows). Run 3× per step, record median.
 
 ---

@@ -23,6 +23,7 @@ members = [
     "crates/models/flowstate",
     "crates/models/tirex",
     "crates/zsfm-cli",
+    "crates/zsfm-bench",
 ]
 
 [workspace.package]

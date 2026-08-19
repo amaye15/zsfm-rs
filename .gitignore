@@ -20,6 +20,7 @@ dist/
 
 # Benchmark cache (auto-regenerated)
 benchmark/.bench_cache.json
+benchmark/bench_cache.json
 
 # Large dataset files
 benchmark/data/traffic_h1.csv

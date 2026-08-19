@@ -10,6 +10,7 @@ zsfm-rs/
     zsfm-checkpoint/  # loads safetensors/pickle/onnx/hdf5/npz/ckpt/gguf, dtype casting, recast()
     zsfm-hub/         # HuggingFace download + the canonical-F32-cache helpers
     zsfm-tensor/      # shared tensor/quantization helpers
+    zsfm-bench/       # in-process rolling-window accuracy/latency benchmark + ensembling
     models/
       chronos/ flowstate/ moirai/ moirai2/ moment/ sundial/ timesfm/ toto/ ttm/
       lag_llama/ tirex/                          # time-series forecasters
@@ -26,11 +27,28 @@ cargo build --release --workspace
 cargo test --release --workspace
 ```
 
-The baseline is 115 passing tests across the workspace (unit tests for tensor casting, GGUF round-tripping, and per-model architecture/shape checks). CI (`.github/workflows/ci.yml`) runs both commands on every push to `main` and every PR, on Linux and macOS.
+The baseline is 130 passing tests across the workspace (unit tests for tensor casting, GGUF round-tripping, per-model architecture/shape checks, and `zsfm-bench`'s window-generation/metrics/ensembling logic). CI (`.github/workflows/ci.yml`) runs both commands on every push to `main` and every PR, on Linux and macOS.
 
 ## Verifying a model port is correct
 
 Every model in this workspace was verified **bit-exact** (or numerically equivalent within float tolerance) against its original PyTorch implementation before being considered done — same input, same output, checkpoint tensor-for-tensor. If you're modifying a model crate, re-run that model's `convert` + `infer` against a known input/output pair before assuming a change is safe; there isn't a single workspace-wide golden-output test harness, so this is a manual step per model.
+
+## Benchmarking
+
+`zsfm-bench` (`crates/zsfm-bench`) runs the rolling-window accuracy/latency benchmark across the 11 time-series forecasters and writes `benchmark.md`. It links the model crates in-process through the shared `zsfm_core::Forecaster` interface — each model's GGUF is loaded exactly once and reused across every dataset/window/context/horizon combination, and independent models run concurrently — rather than the old Python driver's one-subprocess-and-reload-the-model-every-time approach.
+
+```bash
+# convert whichever models you want to benchmark first, e.g.:
+zsfm ttm convert && zsfm moirai2 convert
+
+# one dataset, quick look:
+zsfm-bench run --dataset ETTh1 --models ttm,moirai2 --windows 30
+
+# full 21-dataset × horizon/context sweep, writes ../benchmark.md:
+zsfm-bench report
+```
+
+`report` caches each (dataset, context, horizon, windows) config's results in `benchmark/bench_cache.json` (gitignored) — re-running after an interruption, or after adding a model, only computes what's missing.
 
 ## Adding a new model
 

@@ -1,0 +1,47 @@
+[package]
+name = "zsfm-bench"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "In-process benchmark harness for the 11 zsfm time-series forecasters: rolling-window accuracy/latency evaluation and ensembling, without per-call subprocess/reload overhead."
+publish = false
+
+[[bin]]
+name = "zsfm-bench"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+candle-core.workspace = true
+zsfm-core.workspace = true
+zsfm-hub.workspace = true
+zsfm-chronos.workspace = true
+zsfm-timesfm.workspace = true
+zsfm-sundial.workspace = true
+zsfm-ttm.workspace = true
+zsfm-lag-llama.workspace = true
+zsfm-moment.workspace = true
+zsfm-moirai.workspace = true
+zsfm-moirai2.workspace = true
+zsfm-flowstate.workspace = true
+zsfm-tirex.workspace = true
+zsfm-toto.workspace = true
+rayon = "1"
+csv = "1"
+
+# Apple's Accelerate framework only exists on macOS; enabling it here (a final
+# binary crate) turns it on workspace-wide via Cargo feature unification for
+# macOS builds, matching zsfm-cli's own Cargo.toml.
+[target.'cfg(target_os = "macos")'.dependencies]
+candle-nn = { workspace = true, features = ["accelerate"] }
+
+[target.'cfg(target_os = "macos")'.dependencies.candle-core]
+workspace = true
+features = ["accelerate"]
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+candle-nn.workspace = true

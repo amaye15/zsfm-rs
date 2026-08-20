@@ -49,9 +49,9 @@ pub enum Command {
     /// cached F32 GGUF instead of re-downloading — pass --redownload to force a
     /// fresh download anyway (e.g. the repo was updated).
     Convert {
-        #[arg(long, default_value = "google/timesfm-2.5-200m-pytorch")]
+        #[arg(short, long, default_value = "google/timesfm-2.5-200m-pytorch")]
         model: String,
-        #[arg(long, default_value = "gguf/timesfm.gguf")]
+        #[arg(short, long, default_value = "gguf/timesfm.gguf")]
         output: PathBuf,
         #[arg(long, default_value = "f16")]
         dtype: DtypeArg,
@@ -64,10 +64,10 @@ pub enum Command {
         #[arg(long)]
         redownload: bool,
     },
-    /// Inspect metadata and tensors stored in a GGUF file directly (no safetensors needed).
+    /// Print all tensor names in a local checkpoint file (safetensors, PyTorch
+    /// pickle, GGUF, or npy/npz — format auto-detected).
     InspectTensors {
-        #[arg()]
-        gguf: PathBuf,
+        path: PathBuf,
     },
     /// Run inference on a time series. Univariate only; the architecture is fixed, so no
     /// `--config` is needed.
@@ -88,7 +88,7 @@ pub async fn run(command: Command) -> Result<()> {
         Command::Convert { model, output, dtype, token, model_dir, redownload } => {
             cmd_convert(&model, &output, dtype.into(), token.as_deref(), &model_dir, redownload).await?;
         }
-        Command::InspectTensors { gguf } => cmd_inspect(&gguf)?,
+        Command::InspectTensors { path } => crate::common::inspect_tensors(&path)?,
         Command::Infer { gguf } => cmd_infer(&gguf)?,
     }
     Ok(())
@@ -110,7 +110,10 @@ async fn cmd_convert(
         return Ok(());
     }
 
-    let files = zsfm_hub::download_model(model, token, model_dir).await?;
+    println!("Downloading {model} into {} …", model_dir.display());
+    let files = zsfm_hub::download_model(model, token, model_dir)
+        .await
+        .context("download failed")?;
     let config = TimesFMConfig::new();
 
     convert(model, &files, &config, &ConvertOptions { output_dtype: GGMLType::F32 }, &canonical)?;
@@ -128,30 +131,6 @@ async fn cmd_convert(
     Ok(())
 }
 
-fn cmd_inspect(gguf_path: &PathBuf) -> Result<()> {
-    use candle_core::quantized::gguf_file;
-    use std::io::BufReader;
-
-    let file = std::fs::File::open(gguf_path)
-        .with_context(|| format!("open {}", gguf_path.display()))?;
-    let mut reader = BufReader::with_capacity(zsfm_gguf::READ_BUF_CAPACITY, file);
-    let content = gguf_file::Content::read(&mut reader).context("parse GGUF")?;
-
-    println!("Metadata:");
-    for (k, v) in &content.metadata {
-        println!("  {k} = {v:?}");
-    }
-
-    println!("\nTensors ({}):", content.tensor_infos.len());
-    let mut names: Vec<_> = content.tensor_infos.keys().collect();
-    names.sort();
-    for name in names {
-        let info = &content.tensor_infos[name];
-        println!("  {name}  shape={:?}  dtype={:?}", info.shape, info.ggml_dtype);
-    }
-    Ok(())
-}
-
 fn cmd_infer(gguf_path: &PathBuf) -> Result<()> {
     use std::io::Read;
     let mut buf = String::new();
@@ -161,7 +140,7 @@ fn cmd_infer(gguf_path: &PathBuf) -> Result<()> {
     let horizon: usize = req["horizon"].as_u64().context("horizon must be a positive integer")? as usize;
 
     eprintln!("Loading model from {} …", gguf_path.display());
-    let model = TimesFMModel::load(gguf_path)?;
+    let model = TimesFMModel::load(gguf_path).context("load model")?;
 
     let quantile_labels = ["0.10", "0.20", "0.30", "0.40", "0.50", "0.60", "0.70", "0.80", "0.90"];
 

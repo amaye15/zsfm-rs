@@ -62,7 +62,8 @@ pub enum Command {
         #[arg(long)]
         redownload: bool,
     },
-    /// Print all tensor names in a safetensors file.
+    /// Print all tensor names in a local checkpoint file (safetensors, PyTorch
+    /// pickle, GGUF, or npy/npz — format auto-detected).
     InspectTensors { path: PathBuf },
     /// Run TTM forecasting from a GGUF file. Univariate, point-forecast only.
     ///
@@ -119,19 +120,7 @@ pub async fn run(command: Command) -> anyhow::Result<()> {
             println!("Wrote {}", output.display());
         }
 
-        Command::InspectTensors { path } => {
-            let bytes = std::fs::read(&path)
-                .with_context(|| format!("read {}", path.display()))?;
-            let tensors = safetensors::SafeTensors::deserialize(&bytes)
-                .context("deserialize safetensors")?;
-            println!("Tensors in {}:", path.display());
-            let mut names: Vec<_> = tensors.names().into_iter().collect();
-            names.sort();
-            for name in names {
-                let t = tensors.tensor(name).unwrap();
-                println!("  {name:80} {:?} {:?}", t.dtype(), t.shape());
-            }
-        }
+        Command::InspectTensors { path } => crate::common::inspect_tensors(&path)?,
 
         Command::Infer { gguf, config } => {
             use std::io::Read;
@@ -159,7 +148,7 @@ pub async fn run(command: Command) -> anyhow::Result<()> {
                 let ctx = &raw_variates[0];
                 anyhow::ensure!(
                     ctx.len() >= min_ctx,
-                    "Need at least {min_ctx} context values, got {}",
+                    "context too short — need at least {min_ctx} timesteps, got {}",
                     ctx.len()
                 );
                 total_ctx += ctx.len();

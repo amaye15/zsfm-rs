@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::Context;
 use clap::{Subcommand, ValueEnum};
@@ -62,7 +62,10 @@ pub enum Command {
         #[arg(long)]
         redownload: bool,
     },
-    /// Run inference on a GGUF model. Univariate, point-forecast only (flow-matching).
+    /// Run inference on a GGUF model. Univariate, point-forecast only (flow-matching). No
+    /// --config flag: unlike chronos/flowstate/toto/ttm (which read a HuggingFace
+    /// config.json), Sundial's architecture is read directly from GGUF metadata written
+    /// at convert time, so nothing external is needed at inference time.
     ///
     /// Reads a JSON request from stdin: {"context": [...], "horizon": N}
     /// Outputs a JSON forecast in OpenAI-compatible format.
@@ -75,10 +78,10 @@ pub enum Command {
         #[arg(long)]
         steps: Option<u32>,
     },
-    /// Print tensor names found in a GGUF file.
+    /// Print all tensor names in a local checkpoint file (safetensors, PyTorch
+    /// pickle, GGUF, or npy/npz — format auto-detected).
     InspectTensors {
-        #[arg(long)]
-        model: PathBuf,
+        path: PathBuf,
     },
 }
 
@@ -98,7 +101,10 @@ pub async fn run(command: Command) -> anyhow::Result<()> {
                 return Ok(());
             }
 
-            let files = zsfm_hub::download_model(&model, token.as_deref(), &model_dir).await?;
+            println!("Downloading {model} into {} …", model_dir.display());
+            let files = zsfm_hub::download_model(&model, token.as_deref(), &model_dir)
+                .await
+                .context("download failed")?;
 
             let config_str = std::fs::read_to_string(&files.config_json)
                 .with_context(|| format!("read {}", files.config_json.display()))?;
@@ -125,7 +131,7 @@ pub async fn run(command: Command) -> anyhow::Result<()> {
             if let Some(s) = steps {
                 builder = builder.steps(s as usize);
             }
-            let model = builder.build()?;
+            let model = builder.build().context("load model")?;
             eprintln!("Model loaded.");
 
             let mut fc_outputs = Vec::new();
@@ -146,36 +152,7 @@ pub async fn run(command: Command) -> anyhow::Result<()> {
             println!("{}", zsfm_core::forecast_response_json("sundial", total_ctx, horizon, fc_outputs)?);
         }
 
-        Command::InspectTensors { model } => {
-            inspect_tensors(&model)?;
-        }
-    }
-    Ok(())
-}
-
-fn inspect_tensors(path: &Path) -> anyhow::Result<()> {
-    use candle_core::quantized::gguf_file;
-    use std::fs::File;
-    use std::io::BufReader;
-
-    let f = File::open(path).with_context(|| format!("open {}", path.display()))?;
-    let mut reader = BufReader::with_capacity(zsfm_gguf::READ_BUF_CAPACITY, f);
-    let content = gguf_file::Content::read(&mut reader)
-        .map_err(|e| anyhow::anyhow!("read gguf: {}", e))?;
-
-    println!("Metadata:");
-    let mut keys: Vec<_> = content.metadata.keys().collect();
-    keys.sort();
-    for k in &keys {
-        println!("  {} = {:?}", k, content.metadata[*k]);
-    }
-
-    println!("\nTensors ({}):", content.tensor_infos.len());
-    let mut names: Vec<_> = content.tensor_infos.keys().collect();
-    names.sort();
-    for name in &names {
-        let info = &content.tensor_infos[*name];
-        println!("  {} {:?} {:?}", name, info.shape, info.ggml_dtype);
+        Command::InspectTensors { path } => crate::common::inspect_tensors(&path)?,
     }
     Ok(())
 }

@@ -65,7 +65,14 @@ pub enum Command {
         #[arg(long)]
         redownload: bool,
     },
-    /// Run TiRex forecasting from a GGUF file. Univariate only.
+    /// Print all tensor names in a local checkpoint file (safetensors, PyTorch
+    /// pickle, GGUF, or npy/npz — format auto-detected).
+    InspectTensors {
+        path: PathBuf,
+    },
+    /// Run TiRex forecasting from a GGUF file. Univariate only. No --config flag: the
+    /// architecture is fixed (TiRexConfig::default_from_ckpt()), unlike
+    /// chronos/flowstate/toto/ttm, which vary by checkpoint and need config.json.
     ///
     /// Reads a JSON request from stdin: {"context": [...], "horizon": N}
     /// Outputs a JSON forecast in OpenAI-compatible format with all quantile levels.
@@ -111,6 +118,8 @@ pub async fn run(command: Command) -> anyhow::Result<()> {
             zsfm_checkpoint::recast(&canonical, &output, dtype.into())?;
             println!("Wrote {}", output.display());
         }
+
+        Command::InspectTensors { path } => crate::common::inspect_tensors(&path)?,
 
         Command::Infer { gguf } => {
             use std::io::Read;

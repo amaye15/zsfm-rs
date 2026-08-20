@@ -45,7 +45,7 @@ print(pkg["version"])
 echo "Publishing zsfm-rs v$VERSION to crates.io ..."
 
 for crate in "${CRATES[@]}"; do
-  status=$(curl -s -o /dev/null -w "%{http_code}" -A "zsfm-rs-publish-script (github.com/amaye15/zero-shot-forecasters-gguf)" \
+  status=$(curl -s -o /dev/null -w "%{http_code}" -A "zsfm-rs-publish-script (github.com/amaye15/zsfm-rs)" \
     "https://crates.io/api/v1/crates/$crate/$VERSION")
   if [ "$status" = "200" ]; then
     echo "== $crate $VERSION already published, skipping =="

@@ -45,8 +45,9 @@ pub enum Command {
     /// re-downloading — pass --redownload to force a fresh download anyway (e.g.
     /// the repo was updated).
     Convert {
-        /// `autogluon/mitra-classifier` or `autogluon/mitra-regressor`.
-        #[arg(short, long)]
+        /// `autogluon/mitra-classifier` or `autogluon/mitra-regressor` — pick the one
+        /// matching --task (there's no single checkpoint serving both, unlike tabfm).
+        #[arg(short, long, default_value = "autogluon/mitra-classifier")]
         model: String,
         #[arg(long, value_enum, default_value = "classification")]
         task: TaskArg,
@@ -62,7 +63,8 @@ pub enum Command {
         #[arg(long)]
         redownload: bool,
     },
-    /// Print all tensor names in a local safetensors file.
+    /// Print all tensor names in a local checkpoint file (safetensors, PyTorch
+    /// pickle, GGUF, or npy/npz — format auto-detected).
     InspectTensors { path: PathBuf },
     /// Upload source + GGUF files to HuggingFace Hub.
     Upload {
@@ -81,6 +83,10 @@ pub enum Command {
     /// `n_classes` is only used for classification (ignored, may be omitted, for regression).
     /// Outputs JSON: classification -> {"task":"classification","logits":[[...]],
     /// "probabilities":[[...]]}; regression -> {"task":"regression","predictions":[...]}.
+    /// Mitra is the only tabular model whose `predict_classification` exposes raw
+    /// pre-softmax logits alongside probabilities — tabdpt/tabicl/tabpfn's underlying
+    /// model APIs only ever produce probabilities, so their `infer` responses have no
+    /// `logits` field.
     Infer {
         #[arg(short, long)]
         gguf: PathBuf,
@@ -152,17 +158,7 @@ pub async fn run(command: Command) -> anyhow::Result<()> {
             println!("Wrote {}", output.display());
         }
 
-        Command::InspectTensors { path } => {
-            let bytes = std::fs::read(&path).with_context(|| format!("read {}", path.display()))?;
-            let tensors = safetensors::SafeTensors::deserialize(&bytes).context("deserialize safetensors")?;
-            println!("Tensors in {}:", path.display());
-            let mut names: Vec<_> = tensors.names().into_iter().collect();
-            names.sort();
-            for name in names {
-                let t = tensors.tensor(name).unwrap();
-                println!("  {name:80} {:?} {:?}", t.dtype(), t.shape());
-            }
-        }
+        Command::InspectTensors { path } => crate::common::inspect_tensors(&path)?,
 
         Command::Infer { gguf, task } => {
             use std::io::Read;

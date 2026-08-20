@@ -9,7 +9,8 @@ use zsfm_tabicl::TabIclModel;
 
 #[derive(Subcommand)]
 pub enum Command {
-    /// Print all tensor names in a local safetensors file.
+    /// Print all tensor names in a local checkpoint file (safetensors, PyTorch
+    /// pickle, GGUF, or npy/npz — format auto-detected).
     InspectTensors { path: PathBuf },
     /// Upload source + GGUF files to HuggingFace Hub.
     Upload {
@@ -42,17 +43,7 @@ pub async fn run(command: Command) -> anyhow::Result<()> {
             zsfm_hub::upload_repo(&repo, &token, &root).await?;
         }
 
-        Command::InspectTensors { path } => {
-            let bytes = std::fs::read(&path).with_context(|| format!("read {}", path.display()))?;
-            let tensors = safetensors::SafeTensors::deserialize(&bytes).context("deserialize safetensors")?;
-            println!("Tensors in {}:", path.display());
-            let mut names: Vec<_> = tensors.names().into_iter().collect();
-            names.sort();
-            for name in names {
-                let t = tensors.tensor(name).unwrap();
-                println!("  {name:80} {:?} {:?}", t.dtype(), t.shape());
-            }
-        }
+        Command::InspectTensors { path } => crate::common::inspect_tensors(&path)?,
 
         Command::Infer { gguf } => {
             use std::io::Read;

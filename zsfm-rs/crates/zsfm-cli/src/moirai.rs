@@ -62,12 +62,14 @@ pub enum Command {
         #[arg(long)]
         redownload: bool,
     },
-    /// Print all tensor names in a local safetensors file.
+    /// Print all tensor names in a local checkpoint file (safetensors, PyTorch
+    /// pickle, GGUF, or npy/npz — format auto-detected).
     InspectTensors {
         path: PathBuf,
     },
     /// Run Moirai forecasting from a GGUF file. Point-forecast only, channel-independent
-    /// across variates.
+    /// across variates. No --config flag: the architecture is fixed (MoiraiConfig::default()),
+    /// unlike chronos/flowstate/toto/ttm, which vary by checkpoint and need config.json.
     ///
     /// Reads a JSON request from stdin.
     ///
@@ -115,19 +117,7 @@ pub async fn run(command: Command) -> anyhow::Result<()> {
             println!("Wrote {}", output.display());
         }
 
-        Command::InspectTensors { path } => {
-            let bytes = std::fs::read(&path)
-                .with_context(|| format!("read {}", path.display()))?;
-            let tensors = safetensors::SafeTensors::deserialize(&bytes)
-                .context("deserialize safetensors")?;
-            println!("Tensors in {}:", path.display());
-            let mut names: Vec<_> = tensors.names().into_iter().collect();
-            names.sort();
-            for name in names {
-                let t = tensors.tensor(name).unwrap();
-                println!("  {name:80} {:?} {:?}", t.dtype(), t.shape());
-            }
-        }
+        Command::InspectTensors { path } => crate::common::inspect_tensors(&path)?,
 
         Command::Infer { gguf } => {
             use std::io::Read;

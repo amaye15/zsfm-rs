@@ -78,7 +78,7 @@ From git (latest `main`):
 ```bash
 cargo install --git https://github.com/amaye15/zsfm-rs zsfm --locked
 # or pin a tag:
-cargo install --git https://github.com/amaye15/zsfm-rs --tag v0.2.0 zsfm --locked
+cargo install --git https://github.com/amaye15/zsfm-rs --tag v0.2.1 zsfm --locked
 ```
 
 From a local checkout:
@@ -98,7 +98,7 @@ cargo build --release -p zsfm --manifest-path zsfm-rs/Cargo.toml
 Binaries for Linux (`x86_64-unknown-linux-gnu`) and macOS Apple Silicon (`aarch64-apple-darwin`) are published on the [Releases](https://github.com/amaye15/zsfm-rs/releases) page:
 
 ```bash
-tar xzf zsfm-v0.2.0-aarch64-apple-darwin.tar.gz
+tar xzf zsfm-v0.2.1-aarch64-apple-darwin.tar.gz
 sudo mv zsfm*/*zsfm /usr/local/bin/
 zsfm --help
 ```

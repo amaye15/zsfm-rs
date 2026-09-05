@@ -26,10 +26,19 @@ jobs:
         with:
           workspaces: zsfm-rs
 
+      - name: Set up Python 3.12 (for zsfm-python pyo3)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: cargo build --release
         working-directory: zsfm-rs
-        run: cargo build --release --workspace
+        env:
+          PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
+        run: cargo build --release --workspace --exclude zsfm-python
 
       - name: cargo test --release
         working-directory: zsfm-rs
-        run: cargo test --release --workspace
+        env:
+          PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
+        run: cargo test --release --workspace --exclude zsfm-python

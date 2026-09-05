@@ -28,8 +28,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: zsfm-rs
-          # also cache the Python extension's target dir (same workspace, same key)
-          cache-provider: buildjet
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
@@ -44,6 +42,7 @@ jobs:
       - name: Install Python deps + build extension (uv + maturin)
         run: |
           uv sync --extra dev
+          uv pip install maturin
           uv run maturin develop --manifest-path zsfm-rs/crates/zsfm-python/Cargo.toml
 
       - name: pytest
@@ -99,6 +98,10 @@ jobs:
           args: --release --out dist --manifest-path zsfm-rs/crates/zsfm-python/Cargo.toml --interpreter python3.12
           manylinux: ${{ matrix.manylinux }}
           sccache: "true"
+
+      - name: Install maturin for sdist
+        if: matrix.os == 'ubuntu-latest'
+        run: uv pip install maturin
 
       - name: Build sdist (once, on ubuntu)
         if: matrix.os == 'ubuntu-latest'

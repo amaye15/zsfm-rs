@@ -1,0 +1,154 @@
+name: Python
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: python-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: python test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.12"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: zsfm-rs
+          # also cache the Python extension's target dir (same workspace, same key)
+          cache-provider: buildjet
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install Python deps + build extension (uv + maturin)
+        run: |
+          uv sync --extra dev
+          uv run maturin develop --manifest-path zsfm-rs/crates/zsfm-python/Cargo.toml
+
+      - name: pytest
+        run: uv run pytest tests/python -v
+
+      - name: smoke import
+        run: uv run python -c "import zsfm; print(zsfm.__version__); print(zsfm.list_models())"
+
+  # Build wheels + sdist — mirrors `release.yml:build-binaries` (manylinux + macOS).
+  # We build one sdist (on ubuntu) and one wheel per OS/target, then publish them
+  # together. This matches the crates workflow's "build on tag, attach to release,
+  # then publish" shape, but for PyPI (PYPI_TOKEN) instead of crates.io.
+  build:
+    name: build ${{ matrix.target }} (${{ matrix.os }})
+    if: startsWith(github.ref, 'refs/tags/v')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            manylinux: auto
+          - os: macos-14
+            target: aarch64-apple-darwin
+            manylinux: auto
+          # windows is intentionally not enabled yet — candle's blake3 etc. need
+          # extra setup on windows-latest. Re-add when CI has capacity:
+          # - os: windows-latest
+          #   target: x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: zsfm-rs
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Build wheel via maturin
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          args: --release --out dist --manifest-path zsfm-rs/crates/zsfm-python/Cargo.toml --interpreter python3.12
+          manylinux: ${{ matrix.manylinux }}
+          sccache: "true"
+
+      - name: Build sdist (once, on ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: uv run maturin sdist --out dist --manifest-path zsfm-rs/crates/zsfm-python/Cargo.toml
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-dist-${{ matrix.target }}
+          path: dist/*
+
+  # Publish to PyPI on version tags — mirrors `release.yml:publish-crates`
+  # (crates -> crates.io via CARGO_REGISTRY_TOKEN, python -> PyPI via PYPI_TOKEN).
+  # Enable by setting the repo variable PUBLISH_PYPI=true
+  # (Settings -> Secrets and variables -> Actions -> Variables)
+  # and adding the secret PYPI_TOKEN (Settings -> Secrets -> Actions).
+  publish:
+    name: Publish to PyPI
+    if: startsWith(github.ref, 'refs/tags/v') && vars.PUBLISH_PYPI == 'true' && github.repository_owner == 'amaye15'
+    needs: [test, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: python-dist-*
+          merge-multiple: true
+
+      - name: Check dist
+        run: ls -lh dist/
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      # Publish via maturin (expects MATURIN_PYPI_TOKEN) or twine (PYPI_API_TOKEN).
+      # The repo secret is PYPI_TOKEN, so we expose it as both for compat.
+      - name: Publish to PyPI
+        env:
+          MATURIN_PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
+          PYPI_API_TOKEN: ${{ secrets.PYPI_TOKEN }}
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
+        run: |
+          # maturin publish handles sdist+wheel; fallback to twine for robustness
+          uv pip install maturin twine
+          uv run maturin publish --skip-existing dist/* || uv run twine upload --skip-existing dist/*

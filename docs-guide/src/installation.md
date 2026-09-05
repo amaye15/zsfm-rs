@@ -14,7 +14,7 @@ From git (latest `main`):
 ```bash
 cargo install --git https://github.com/amaye15/zsfm-rs zsfm --locked
 # or pin a tag:
-cargo install --git https://github.com/amaye15/zsfm-rs --tag v0.1.0 zsfm --locked
+cargo install --git https://github.com/amaye15/zsfm-rs --tag v0.2.0 zsfm --locked
 ```
 
 From a local checkout:
@@ -41,8 +41,8 @@ Pre-built binaries are published on the [GitHub Releases page](https://github.co
 Download the tarball for your platform, extract it, and put `zsfm` on your `PATH`:
 
 ```bash
-tar xzf zsfm-v0.1.0-aarch64-apple-darwin.tar.gz
-sudo mv zsfm-v0.1.0-aarch64-apple-darwin/zsfm /usr/local/bin/
+tar xzf zsfm-v0.2.0-aarch64-apple-darwin.tar.gz
+sudo mv zsfm-v0.2.0-aarch64-apple-darwin/zsfm /usr/local/bin/
 zsfm --help
 ```
 

@@ -120,6 +120,27 @@ pub enum Command {
         #[arg(long)]
         batch_size: Option<usize>,
     },
+
+    /// Delete cached model files for this model.
+    ///
+    /// Removes the canonical F32 GGUF and config cache at
+    /// `<model_dir>/[<variant>-]<owner>__<name>/` created by `convert`.
+    /// By default only the cache is removed; pass `--output <path>` to also
+    /// delete a converted GGUF file (e.g. `gguf/...`).
+    Delete {
+        /// HuggingFace repo id (must match the `convert` --model you used).
+        #[arg(short, long, default_value = "google/tabfm-1.0.0-pytorch")]
+        model: String,
+        /// Which variant to delete (must match `convert` --task).
+        #[arg(long, value_enum, default_value = "classification")]
+        task: TaskArg,
+        /// Directory where the cache was written (must match `convert` --model-dir).
+        #[arg(long, default_value = "models")]
+        model_dir: PathBuf,
+        /// Also delete this output GGUF file if it exists.
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
 }
 
 /// BF16 is deliberately not offered here: candle 0.8's GGUF reader (used by every
@@ -155,6 +176,12 @@ fn dtype_name(d: &DtypeArg) -> &'static str {
 
 pub async fn run(command: Command) -> anyhow::Result<()> {
     match command {
+        Command::Delete { model, task, model_dir, output } => {
+            let task_str = task.as_str();
+            let variant_dir = model_dir.join(format!("tabfm-{task_str}"));
+            let canonical = zsfm_hub::canonical_gguf_path(&variant_dir, &model);
+            crate::common::delete_cached_model(&canonical, output.as_deref())?;
+        }
         Command::Upload { repo, token, root } => {
             zsfm_hub::upload_repo(&repo, &token, &root).await?;
         }

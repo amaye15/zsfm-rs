@@ -35,10 +35,32 @@ pub enum Command {
         #[arg(short, long)]
         gguf: PathBuf,
     },
+
+    /// Delete cached model files for this model.
+    ///
+    /// Removes the canonical F32 GGUF and config cache at
+    /// `<model_dir>/<owner>__<name>/` created by `convert`. By default only
+    /// the cache is removed; pass `--output <path>` to also delete a
+    /// converted GGUF file (e.g. `gguf/...`).
+    Delete {
+        /// HuggingFace repo id (must match the `convert` --model you used).
+        #[arg(short, long, default_value = "jingang/TabICL")]
+        model: String,
+        /// Directory where the cache was written (must match `convert` --model-dir).
+        #[arg(long, default_value = "models")]
+        model_dir: PathBuf,
+        /// Also delete this output GGUF file if it exists.
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
 }
 
 pub async fn run(command: Command) -> anyhow::Result<()> {
     match command {
+        Command::Delete { model, model_dir, output } => {
+            let canonical = zsfm_hub::canonical_gguf_path(&model_dir, &model);
+            crate::common::delete_cached_model(&canonical, output.as_deref())?;
+        }
         Command::Upload { repo, token, root } => {
             zsfm_hub::upload_repo(&repo, &token, &root).await?;
         }

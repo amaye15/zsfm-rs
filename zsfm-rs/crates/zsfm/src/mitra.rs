@@ -93,6 +93,27 @@ pub enum Command {
         #[arg(long, value_enum, default_value = "classification")]
         task: TaskArg,
     },
+
+    /// Delete cached model files for this model.
+    ///
+    /// Removes the canonical F32 GGUF and config cache at
+    /// `<model_dir>/[<variant>-]<owner>__<name>/` created by `convert`.
+    /// By default only the cache is removed; pass `--output <path>` to also
+    /// delete a converted GGUF file (e.g. `gguf/...`).
+    Delete {
+        /// HuggingFace repo id (must match the `convert` --model you used).
+        #[arg(short, long, default_value = "autogluon/mitra-classifier")]
+        model: String,
+        /// Which variant to delete (must match `convert` --task).
+        #[arg(long, value_enum, default_value = "classification")]
+        task: TaskArg,
+        /// Directory where the cache was written (must match `convert` --model-dir).
+        #[arg(long, default_value = "models")]
+        model_dir: PathBuf,
+        /// Also delete this output GGUF file if it exists.
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
 }
 
 fn dtype_name(d: &DtypeArg) -> &'static str {
@@ -105,6 +126,15 @@ fn dtype_name(d: &DtypeArg) -> &'static str {
 
 pub async fn run(command: Command) -> anyhow::Result<()> {
     match command {
+        Command::Delete { model, task, model_dir, output } => {
+            let task_str = match task {
+                TaskArg::Classification => "classification",
+                TaskArg::Regression => "regression",
+            };
+            let variant_dir = model_dir.join(format!("mitra-{task_str}"));
+            let canonical = zsfm_hub::canonical_gguf_path(&variant_dir, &model);
+            crate::common::delete_cached_model(&canonical, output.as_deref())?;
+        }
         Command::Upload { repo, token, root } => {
             zsfm_hub::upload_repo(&repo, &token, &root).await?;
         }

@@ -1,10 +1,13 @@
 [package]
-name = "zsfm-cli"
+name = "zsfm"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Single CLI (convert / infer / upload) for every zsfm model, replacing the 11 per-model binaries."
+keywords = ["forecasting", "time-series", "machine-learning", "gguf", "foundation-model"]
+categories = ["science", "command-line-utilities"]
+readme = "../../../README.md"
 
 [[bin]]
 name = "zsfm"

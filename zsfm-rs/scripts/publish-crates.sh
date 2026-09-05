@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Publishes every zsfm-rs crate to crates.io in dependency order (leaf crates
-# first, zsfm-cli last). Safe to re-run: a crate/version already live on
+# first, `zsfm` last). Safe to re-run: a crate/version already live on
 # crates.io is skipped rather than failing the whole run, so a partial
 # failure can just be re-run once the underlying issue is fixed.
 #
@@ -32,7 +32,7 @@ CRATES=(
   zsfm-tirex
   zsfm-toto
   zsfm-ttm
-  zsfm-cli
+  zsfm
 )
 
 VERSION=$(cargo metadata --no-deps --format-version 1 | python3 -c '

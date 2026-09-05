@@ -22,7 +22,7 @@ members = [
     "crates/models/moirai2",
     "crates/models/flowstate",
     "crates/models/tirex",
-    "crates/zsfm-cli",
+    "crates/zsfm",
     "crates/zsfm-bench",
 ]
 
@@ -72,10 +72,11 @@ indicatif = "0.17"
 sha2 = "0.10"
 base64 = "0.22"
 # No "accelerate" feature here: it links Apple's Accelerate.framework and only
-# builds on macOS. zsfm-cli turns it on for macOS builds only (see its Cargo.toml)
-# via Cargo's feature unification, which every other crate in the workspace picks
-# up for free when built as part of the `zsfm` binary; standalone `cargo test -p
-# <model-crate>` runs still work everywhere via candle's portable default backend.
+# builds on macOS. `zsfm` (crates/zsfm) turns it on for macOS builds only (see
+# its Cargo.toml) via Cargo's feature unification, which every other crate in
+# the workspace picks up for free when built as part of the `zsfm` binary;
+# standalone `cargo test -p <model-crate>` runs still work everywhere via
+# candle's portable default backend.
 candle-core = "0.8"
 candle-nn = "0.8"
 

@@ -18,7 +18,7 @@ jobs:
         # macos-13 (x86_64-apple-darwin) was dropped: GitHub's free Intel Mac
         # runner pool has effectively no capacity left — a build queued for
         # 10+ hours without starting. Intel Mac users can still build from
-        # source (`cargo build --release -p zsfm-cli` in zsfm-rs). Re-add if
+        # source (`cargo build --release -p zsfm` in zsfm-rs). Re-add if
         # GitHub restores capacity or a self-hosted Intel runner becomes
         # available.
     runs-on: ${{ matrix.os }}
@@ -31,9 +31,9 @@ jobs:
         with:
           workspaces: zsfm-rs
 
-      - name: cargo build --release -p zsfm-cli
+      - name: cargo build --release -p zsfm
         working-directory: zsfm-rs
-        run: cargo build --release -p zsfm-cli
+        run: cargo build --release -p zsfm
 
       - name: Package
         working-directory: zsfm-rs

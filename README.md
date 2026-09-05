@@ -63,7 +63,36 @@ Zero-shot in-context classification/regression: give a small labeled support set
 
 ## Installation
 
-### Option 1: pre-built binary
+### Option 1: `cargo install` (like `cargo install ripgrep`)
+
+From [crates.io](https://crates.io/crates/zsfm) (requires a recent stable Rust toolchain from [rustup.rs](https://rustup.rs)):
+
+```bash
+cargo install zsfm --locked
+zsfm --help
+```
+
+From git (latest `main`):
+
+```bash
+cargo install --git https://github.com/amaye15/zsfm-rs zsfm --locked
+# or pin a tag:
+cargo install --git https://github.com/amaye15/zsfm-rs --tag v0.1.0 zsfm --locked
+```
+
+From a local checkout:
+
+```bash
+git clone https://github.com/amaye15/zsfm-rs.git
+cargo install --path zsfm-rs/crates/zsfm --locked
+# or, build without installing:
+cargo build --release -p zsfm --manifest-path zsfm-rs/Cargo.toml
+./zsfm-rs/target/release/zsfm --help
+```
+
+> `--locked` uses the `Cargo.lock` tested in CI for reproducible builds. Omit it if you want the latest compatible dependencies.
+
+### Option 2: pre-built binary
 
 Binaries for Linux (`x86_64-unknown-linux-gnu`) and macOS Apple Silicon (`aarch64-apple-darwin`) are published on the [Releases](https://github.com/amaye15/zsfm-rs/releases) page:
 
@@ -73,18 +102,7 @@ sudo mv zsfm*/*zsfm /usr/local/bin/
 zsfm --help
 ```
 
-> macOS Intel (`x86_64-apple-darwin`) is not currently published (GitHub's free Intel runner capacity was cut). Build from source instead — the workspace builds fine on Intel Macs.
-
-### Option 2: build from source
-
-Requires a recent stable Rust toolchain ([rustup.rs](https://rustup.rs)):
-
-```bash
-git clone https://github.com/amaye15/zsfm-rs.git
-cd zsfm-rs/zsfm-rs
-cargo build --release -p zsfm-cli
-./target/release/zsfm --help
-```
+> macOS Intel (`x86_64-apple-darwin`) is not currently published (GitHub's free Intel runner capacity was cut). Use `cargo install` above instead — the workspace builds fine on Intel Macs.
 
 On macOS the release profile automatically links Apple's Accelerate framework for faster BLAS; on Linux/Windows it falls back to candle's portable backend with no extra setup.
 
@@ -240,10 +258,11 @@ See also [benchmark/optimisation_log.md](benchmark/optimisation_log.md) for infe
 
 ```
 .
-├── zsfm-rs/                  # Rust workspace (all code lives here)
+├── Cargo.toml                # root workspace (so `cargo install --git https://github.com/amaye15/zsfm-rs zsfm` works)
+├── zsfm-rs/                  # Rust workspace (all code lives here; also usable as `cargo build -p zsfm --manifest-path zsfm-rs/Cargo.toml`)
 │   ├── Cargo.toml            # workspace + shared [profile.release] (lto=fat, opt-level=3, strip)
 │   ├── crates/
-│   │   ├── zsfm-cli/         # `zsfm` binary — one subcommand module per model
+│   │   ├── zsfm/             # `zsfm` binary — one subcommand module per model (`cargo install zsfm`)
 │   │   ├── zsfm-gguf/        # GGUF reader/writer
 │   │   ├── zsfm-hub/         # HF download/upload + canonical-F32 cache helpers
 │   │   ├── zsfm-checkpoint/  # checkpoint loader (safetensors/pickle/ONNX/HDF5/npz/ckpt/gguf) + dtype casting
@@ -278,7 +297,7 @@ See also [benchmark/optimisation_log.md](benchmark/optimisation_log.md) for infe
 └── LICENSE (MIT)
 ```
 
-Each model crate under `zsfm-rs/crates/models/` owns its architecture, checkpoint weight-name mapping, and candle kernels; `zsfm-cli` only wires them to the CLI.
+Each model crate under `zsfm-rs/crates/models/` owns its architecture, checkpoint weight-name mapping, and candle kernels; `zsfm` (`zsfm-rs/crates/zsfm/`) only wires them to the CLI.
 
 ---
 
@@ -295,11 +314,11 @@ CI (`.github/workflows/ci.yml:1`) runs both on every push to `main` and every PR
 ### Adding a new model
 
 1. New crate at `zsfm-rs/crates/models/<name>/` (weight mapping + candle inference + request/response types).
-2. Module at `zsfm-cli/src/<name>.rs` with `convert`/`infer` subcommands — follow the caching pattern in [The `zsfm` CLI](docs-guide/src/cli-overview.md#model-caching) (`zsfm_hub::canonical_gguf_path` + `zsfm_checkpoint::recast`).
-3. Wire it into `zsfm-cli/src/main.rs:ModelCommand`.
+2. Module at `zsfm/src/<name>.rs` (`zsfm-rs/crates/zsfm/src/<name>.rs`) with `convert`/`infer` subcommands — follow the caching pattern in [The `zsfm` CLI](docs-guide/src/cli-overview.md#model-caching) (`zsfm_hub::canonical_gguf_path` + `zsfm_checkpoint::recast`).
+3. Wire it into `zsfm/src/main.rs:ModelCommand` (`zsfm-rs/crates/zsfm/src/main.rs`).
 4. Add a page under `docs-guide/src/models/` and a row in the model table.
 
-See [Development](docs-guide/src/development.md) for benchmarking and release notes. Pushing a `v*` tag triggers `.github/workflows/release.yml:1` (cross-platform binaries + GitHub Release + optional crates.io publish via `zsfm-rs/scripts/publish-crates.sh`).
+See [Development](docs-guide/src/development.md) for benchmarking and release notes. Pushing a `v*` tag triggers `.github/workflows/release.yml:1` (cross-platform binaries via `cargo build -p zsfm` + GitHub Release + optional crates.io publish via `zsfm-rs/scripts/publish-crates.sh` — `cargo publish -p zsfm` is last).
 
 ---
 

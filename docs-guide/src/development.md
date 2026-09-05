@@ -3,28 +3,37 @@
 ## Workspace layout
 
 ```
-zsfm-rs/
-  crates/
-    zsfm-cli/        # the `zsfm` binary — one subcommand module per model
-    zsfm-gguf/        # GGUF reader/writer
-    zsfm-checkpoint/  # loads safetensors/pickle/onnx/hdf5/npz/ckpt/gguf, dtype casting, recast()
-    zsfm-hub/         # HuggingFace download + the canonical-F32-cache helpers
-    zsfm-tensor/      # shared tensor/quantization helpers
-    zsfm-bench/       # in-process rolling-window accuracy/latency benchmark + ensembling
-    models/
-      chronos/ flowstate/ moirai/ moirai2/ moment/ sundial/ timesfm/ toto/ ttm/
-      lag_llama/ tirex/                          # time-series forecasters
-      mitra/ tabdpt/ tabicl/ tabpfn/ tabfm/       # tabular foundation models
+.
+├── Cargo.toml         # root workspace (so `cargo install --git https://github.com/amaye15/zsfm-rs zsfm` works)
+└── zsfm-rs/
+    crates/
+      zsfm/            # the `zsfm` binary — one subcommand module per model (`cargo install zsfm`)
+      zsfm-gguf/        # GGUF reader/writer
+      zsfm-checkpoint/  # loads safetensors/pickle/onnx/hdf5/npz/ckpt/gguf, dtype casting, recast()
+      zsfm-hub/         # HuggingFace download + the canonical-F32-cache helpers
+      zsfm-nn/          # shared candle tensor primitives
+      zsfm-bench/       # in-process rolling-window accuracy/latency benchmark + ensembling
+      models/
+        chronos/ flowstate/ moirai/ moirai2/ moment/ sundial/ timesfm/ toto/ ttm/
+        lag_llama/ tirex/                          # time-series forecasters
+        mitra/ tabdpt/ tabicl/ tabpfn/ tabfm/       # tabular foundation models
 ```
 
-Each model crate under `models/` owns its architecture, weight-name mapping, and inference kernel; `zsfm-cli` just wires them up to `convert`/`infer`/`upload`/`inspect-tensors` subcommands.
+Each model crate under `models/` owns its architecture, weight-name mapping, and inference kernel; `zsfm` (`crates/zsfm/`) just wires them up to `convert`/`infer`/`upload`/`inspect-tensors` subcommands.
 
 ## Building and testing
 
 ```bash
+# from the repo root (uses the root workspace, which re-exports zsfm-rs):
+cargo build --release --workspace
+cargo test --release --workspace
+# or, from inside zsfm-rs (same result, uses zsfm-rs/Cargo.toml):
 cd zsfm-rs
 cargo build --release --workspace
 cargo test --release --workspace
+# also: cargo install from crates.io or git, like ripgrep:
+cargo install zsfm --locked
+cargo install --git https://github.com/amaye15/zsfm-rs zsfm --locked
 ```
 
 The baseline is 130 passing tests across the workspace (unit tests for tensor casting, GGUF round-tripping, per-model architecture/shape checks, and `zsfm-bench`'s window-generation/metrics/ensembling logic). CI (`.github/workflows/ci.yml`) runs both commands on every push to `main` and every PR, on Linux and macOS.
@@ -55,10 +64,10 @@ zsfm-bench report
 Roughly the shape to follow, based on the existing crates under `models/`:
 
 1. New crate under `crates/models/<name>/` with a weight-name mapping from the original checkpoint to whatever internal names you want, an inference module built on candle, and a request/response type.
-2. A `zsfm-cli/src/<name>.rs` with `convert`/`infer` subcommands, following the caching pattern described in [The `zsfm` CLI](./cli-overview.md#model-caching) — compute `zsfm_hub::canonical_gguf_path`, check it before downloading, call `zsfm_checkpoint::recast` for cache hits and for the final requested dtype after a fresh download.
-3. Wire the subcommand into `zsfm-cli`'s top-level `Commands` enum.
+2. A `zsfm/src/<name>.rs` (`zsfm-rs/crates/zsfm/src/<name>.rs`) with `convert`/`infer` subcommands, following the caching pattern described in [The `zsfm` CLI](./cli-overview.md#model-caching) — compute `zsfm_hub::canonical_gguf_path`, check it before downloading, call `zsfm_checkpoint::recast` for cache hits and for the final requested dtype after a fresh download.
+3. Wire the subcommand into `zsfm`'s top-level `Commands` enum (`zsfm-rs/crates/zsfm/src/main.rs`).
 4. A page in this guide (`docs-guide/src/models/`) and a row in the relevant summary table.
 
 ## Releasing
 
-Pushing a `v*` tag triggers `.github/workflows/release.yml`: cross-platform binary builds, a GitHub Release with `--generate-notes`, and (gated behind the `PUBLISH_CRATES_IO` repository variable) publishing all 22 crates to crates.io in dependency order via `zsfm-rs/scripts/publish-crates.sh`.
+Pushing a `v*` tag triggers `.github/workflows/release.yml`: cross-platform binary builds (`cargo build --release -p zsfm`), a GitHub Release with `--generate-notes`, and (gated behind the `PUBLISH_CRATES_IO` repository variable) publishing all 22 crates to crates.io in dependency order via `zsfm-rs/scripts/publish-crates.sh` (`cargo publish -p zsfm` is last).

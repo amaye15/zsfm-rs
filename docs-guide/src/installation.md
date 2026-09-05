@@ -66,7 +66,8 @@ On macOS, the release profile links against Apple's Accelerate framework for fas
 
 ```bash
 zsfm --help          # top-level: one subcommand per model
-zsfm chronos --help  # per-model: convert / infer / upload / inspect-tensors
+zsfm chronos --help  # per-model: convert / infer / upload / inspect-tensors / delete
+zsfm chronos delete --help  # per-model cache deletion
 ```
 
 If both print usage text without errors, you're ready for the [Quick start](./quickstart.md).

@@ -1,6 +1,6 @@
 # The `zsfm` CLI
 
-Every model gets its own subcommand: `zsfm <model> <action>`. Most models support four actions:
+Every model gets its own subcommand: `zsfm <model> <action>`. Most models support five actions:
 
 | Action | What it does |
 |---|---|
@@ -8,8 +8,9 @@ Every model gets its own subcommand: `zsfm <model> <action>`. Most models suppor
 | `infer` | Load a GGUF file and run zero-shot inference on a JSON request from stdin |
 | `upload` | Push the source + GGUF files to a HuggingFace repo you control |
 | `inspect-tensors` | Print every tensor name/shape/dtype in a local checkpoint file |
+| `delete` | Remove the cached canonical GGUF + config for this model (and optionally an output GGUF) |
 
-Run `zsfm <model> --help` or `zsfm <model> convert --help` for the full flag list of any specific model. Every `convert` command takes `--model-dir` (default `models/`, resolved relative to wherever you run `zsfm` from) for where downloaded weights and the canonical F32 GGUF cache are stored.
+Run `zsfm <model> --help` or `zsfm <model> convert --help` for the full flag list of any specific model. Every `convert` command takes `--model-dir` (default `models/`, resolved relative to wherever you run `zsfm` from) for where downloaded weights and the canonical F32 GGUF cache are stored. `delete` mirrors `convert`'s `--model` and `--model-dir` flags: `zsfm <model> delete --help` shows the same cache location it will remove, plus an optional `--output <path>` to also delete a converted GGUF.
 
 ## Model caching
 
@@ -25,6 +26,13 @@ Every **later** `convert` for that same model — at any `--dtype` — recasts s
 zsfm chronos convert --dtype f32   # downloads, ~10s
 zsfm chronos convert --dtype f16   # recasts from cache, <1s, no network
 zsfm chronos convert --dtype q8    # recasts from cache, <1s, no network
+```
+
+To free disk, remove the cache (and optionally an output file):
+
+```bash
+zsfm chronos delete                          # removes models/amazon__chronos-2/
+zsfm chronos delete --output gguf/chronos-f16.gguf  # also removes the converted file
 ```
 
 Pass `--redownload` to force a fresh download anyway (e.g. the upstream repo was updated):

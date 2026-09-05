@@ -19,7 +19,7 @@
         mitra/ tabdpt/ tabicl/ tabpfn/ tabfm/       # tabular foundation models
 ```
 
-Each model crate under `models/` owns its architecture, weight-name mapping, and inference kernel; `zsfm` (`crates/zsfm/`) just wires them up to `convert`/`infer`/`upload`/`inspect-tensors` subcommands.
+Each model crate under `models/` owns its architecture, weight-name mapping, and inference kernel; `zsfm` (`crates/zsfm/`) just wires them up to `convert`/`infer`/`upload`/`inspect-tensors`/`delete` subcommands.
 
 ## Building and testing
 
@@ -64,7 +64,7 @@ zsfm-bench report
 Roughly the shape to follow, based on the existing crates under `models/`:
 
 1. New crate under `crates/models/<name>/` with a weight-name mapping from the original checkpoint to whatever internal names you want, an inference module built on candle, and a request/response type.
-2. A `zsfm/src/<name>.rs` (`zsfm-rs/crates/zsfm/src/<name>.rs`) with `convert`/`infer` subcommands, following the caching pattern described in [The `zsfm` CLI](./cli-overview.md#model-caching) — compute `zsfm_hub::canonical_gguf_path`, check it before downloading, call `zsfm_checkpoint::recast` for cache hits and for the final requested dtype after a fresh download.
+2. A `zsfm/src/<name>.rs` (`zsfm-rs/crates/zsfm/src/<name>.rs`) with `convert`/`infer`/`delete` subcommands, following the caching pattern described in [The `zsfm` CLI](./cli-overview.md#model-caching) — compute `zsfm_hub::canonical_gguf_path`, check it before downloading, call `zsfm_checkpoint::recast` for cache hits and for the final requested dtype after a fresh download, and implement `delete` via `common::delete_cached_model`.
 3. Wire the subcommand into `zsfm`'s top-level `Commands` enum (`zsfm-rs/crates/zsfm/src/main.rs`).
 4. A page in this guide (`docs-guide/src/models/`) and a row in the relevant summary table.
 

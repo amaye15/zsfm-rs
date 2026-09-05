@@ -110,7 +110,8 @@ Verify:
 
 ```bash
 zsfm --help              # one subcommand per model
-zsfm chronos --help      # per-model: convert / infer / upload / inspect-tensors
+zsfm chronos --help      # per-model: convert / infer / upload / inspect-tensors / delete
+zsfm chronos delete --help  # per-model cache deletion
 ```
 
 ---
@@ -185,11 +186,13 @@ Every model is a subcommand: `zsfm <model> <action>`.
 | `infer` | Load a GGUF and run inference on JSON from stdin → JSON to stdout |
 | `upload` | Push source + GGUF to a Hugging Face repo you control |
 | `inspect-tensors` | Print every tensor name/shape/dtype in a local checkpoint |
+| `delete` | Remove the cached canonical GGUF + config for this model (and optionally an output GGUF) |
 
 ```bash
 zsfm <model> --help
 zsfm <model> convert --help
 zsfm <model> infer --help
+zsfm <model> delete --help
 ```
 
 #### Model caching
@@ -207,6 +210,14 @@ zsfm chronos convert --dtype f32   # downloads
 zsfm chronos convert --dtype f16   # <1s, from cache
 zsfm chronos convert --dtype q8    # <1s, from cache (Q8_0 block-quant; tiny tensors stay F32)
 zsfm chronos convert --redownload  # force a fresh download
+```
+
+To free disk, remove the cache (and optionally an output file):
+
+```bash
+zsfm chronos delete                          # removes models/amazon__chronos-2/
+zsfm chronos delete --output gguf/chronos-f16.gguf  # also removes the converted file
+zsfm chronos delete --model custom/repo --model-dir /tmp/models  # custom locations
 ```
 
 Most `convert` commands accept `--dtype f32|f16|q8`. BF16 is available only through the generic converter (candle can't currently load GGUF BF16 back).

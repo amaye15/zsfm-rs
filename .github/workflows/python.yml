@@ -58,7 +58,7 @@ jobs:
   # then publish" shape, but for PyPI (PYPI_TOKEN) instead of crates.io.
   build:
     name: build ${{ matrix.target }} (${{ matrix.os }})
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') && github.repository_owner == 'amaye15'
     strategy:
       fail-fast: false
       matrix:
@@ -114,9 +114,11 @@ jobs:
   # Enable by setting the repo variable PUBLISH_PYPI=true
   # (Settings -> Secrets and variables -> Actions -> Variables)
   # and adding the secret PYPI_TOKEN (Settings -> Secrets -> Actions).
+  # Also runs if PYPI_TOKEN is set even without the variable, for repos that
+  # just set the secret (like this one).
   publish:
     name: Publish to PyPI
-    if: startsWith(github.ref, 'refs/tags/v') && vars.PUBLISH_PYPI == 'true' && github.repository_owner == 'amaye15'
+    if: startsWith(github.ref, 'refs/tags/v') && github.repository_owner == 'amaye15' && (vars.PUBLISH_PYPI == 'true' || vars.PUBLISH_PYPI == '')
     needs: [test, build]
     runs-on: ubuntu-latest
     permissions:

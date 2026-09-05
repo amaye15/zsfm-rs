@@ -114,7 +114,7 @@ impl ModelId {
         }
     }
 
-    /// HuggingFace repo id — must match each model's own `zsfm-cli` `Convert`
+    /// HuggingFace repo id — must match each model's own `zsfm` `Convert`
     /// default `--model` value, since we read from the canonical F32 GGUF
     /// cache that `zsfm <model> convert` populates at
     /// `<models_dir>/<owner>__<repo>/model-f32.gguf`.

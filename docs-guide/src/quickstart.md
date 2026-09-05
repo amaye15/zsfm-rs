@@ -75,3 +75,15 @@ zsfm mitra infer --gguf gguf/mitra-classification-f32.gguf < request.json
 ```
 
 For every model's exact request/response shape, scope, and any caveats, see [Time-series forecasters](./models/time-series.md) and [Tabular foundation models](./models/tabular.md).
+
+## 4. Clean up (optional)
+
+To free disk, remove a model's cache (and optionally its output GGUF):
+
+```bash
+zsfm moirai2 delete
+zsfm moirai2 delete --output gguf/moirai2-f32.gguf  # also remove the converted file
+zsfm mitra delete --task classification --output gguf/mitra-classification-f32.gguf
+```
+
+`delete` mirrors `convert`'s `--model` and `--model-dir` flags, so `zsfm <model> delete --help` shows the exact cache it will remove. See [The `zsfm` CLI](./cli-overview.md#model-caching) for details.

@@ -14,10 +14,11 @@
 
 `zsfm-rs` is a Rust workspace that ports **11 zero-shot time-series forecasters** and **5 tabular foundation models** to a unified GGUF + candle stack. Each port is verified **bit-exact** (or within F32 rounding, ~1e-6–1e-7) tensor-for-tensor against the original PyTorch checkpoint before being considered done — no re-training, no approximations, just the original published weights re-encoded.
 
-There are two halves:
+There are two halves — plus a cleanup helper:
 
 1. **Convert** — `zsfm <model> convert` downloads the model's real weights from Hugging Face and writes a single `*.gguf` file.
 2. **Infer** — `zsfm <model> infer --gguf <file> < request.json` loads that GGUF and returns a forecast / tabular prediction. No PyTorch, no Python runtime.
+3. **Delete** — `zsfm <model> delete` removes the cached `model-f32.gguf` + `config.json` (and optionally an output GGUF) to free disk (`zsfm chronos delete --output gguf/chronos-f16.gguf`).
 
 The same GGUF file works with any GGUF consumer; `infer` just happens to use candle.
 

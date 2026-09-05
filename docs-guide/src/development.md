@@ -5,9 +5,11 @@
 ```
 .
 ├── Cargo.toml         # root workspace (so `cargo install --git https://github.com/amaye15/zsfm-rs zsfm` works)
+├── pyproject.toml     # Python project (uv + maturin + pyo3, module `zsfm`)
 └── zsfm-rs/
     crates/
       zsfm/            # the `zsfm` binary — one subcommand module per model (`cargo install zsfm`)
+      zsfm-python/     # `zsfm` Python extension (pyo3, `import zsfm`; see ./python.md)
       zsfm-gguf/        # GGUF reader/writer
       zsfm-checkpoint/  # loads safetensors/pickle/onnx/hdf5/npz/ckpt/gguf, dtype casting, recast()
       zsfm-hub/         # HuggingFace download + the canonical-F32-cache helpers
@@ -24,7 +26,7 @@ Each model crate under `models/` owns its architecture, weight-name mapping, and
 ## Building and testing
 
 ```bash
-# from the repo root (uses the root workspace, which re-exports zsfm-rs):
+# Rust — from the repo root (uses the root workspace, which re-exports zsfm-rs):
 cargo build --release --workspace
 cargo test --release --workspace
 # or, from inside zsfm-rs (same result, uses zsfm-rs/Cargo.toml):
@@ -34,9 +36,16 @@ cargo test --release --workspace
 # also: cargo install from crates.io or git, like ripgrep:
 cargo install zsfm --locked
 cargo install --git https://github.com/amaye15/zsfm-rs zsfm --locked
+
+# Python — uv + pyo3 + maturin (see ./python.md)
+uv sync
+cargo build --release -p zsfm-python   # check Rust alone
+uv run maturin develop                 # build + install as editable (fastest)
+uv run pytest tests/python -v          # or: .venv/bin/python -m pytest
+uv run python -c "import zsfm; print(zsfm.list_models())"
 ```
 
-The baseline is 130 passing tests across the workspace (unit tests for tensor casting, GGUF round-tripping, per-model architecture/shape checks, and `zsfm-bench`'s window-generation/metrics/ensembling logic). CI (`.github/workflows/ci.yml`) runs both commands on every push to `main` and every PR, on Linux and macOS.
+The baseline is 130 passing tests across the workspace (unit tests for tensor casting, GGUF round-tripping, per-model architecture/shape checks, and `zsfm-bench`'s window-generation/metrics/ensembling logic) plus 6 Python tests (`tests/python/test_zsfm.py`). CI (`.github/workflows/ci.yml`) runs both on every push to `main` and every PR, on Linux and macOS — Rust (`cargo build`/`cargo test`) and Python (`uv run maturin develop` + `pytest`).
 
 ## Verifying a model port is correct
 

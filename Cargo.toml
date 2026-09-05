@@ -23,6 +23,7 @@ members = [
     "zsfm-rs/crates/models/flowstate",
     "zsfm-rs/crates/models/tirex",
     "zsfm-rs/crates/zsfm",
+    "zsfm-rs/crates/zsfm-python",
     "zsfm-rs/crates/zsfm-bench",
 ]
 
@@ -73,6 +74,9 @@ sha2 = "0.10"
 base64 = "0.22"
 candle-core = "0.8"
 candle-nn = "0.8"
+pyo3 = { version = "0.23", features = ["extension-module"] }
+numpy = "0.23"
+ndarray = { version = "0.15", features = ["blas"] }
 
 [profile.release]
 opt-level     = 3

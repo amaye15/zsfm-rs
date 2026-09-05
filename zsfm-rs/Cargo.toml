@@ -23,6 +23,7 @@ members = [
     "crates/models/flowstate",
     "crates/models/tirex",
     "crates/zsfm",
+    "crates/zsfm-python",
     "crates/zsfm-bench",
 ]
 
@@ -79,6 +80,9 @@ base64 = "0.22"
 # candle's portable default backend.
 candle-core = "0.8"
 candle-nn = "0.8"
+pyo3 = { version = "0.23", features = ["extension-module"] }
+numpy = "0.23"
+ndarray = { version = "0.15", features = ["blas"] }
 
 # Shared by every crate in the workspace so the 11 legacy per-model crates'
 # copy-pasted [profile.release] blocks collapse to one definition.

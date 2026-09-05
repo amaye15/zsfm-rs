@@ -175,6 +175,41 @@ zsfm mitra infer --gguf gguf/mitra-classification-f32.gguf < request.json
 
 See [Time-series forecasters](docs-guide/src/models/time-series.md) and [Tabular foundation models](docs-guide/src/models/tabular.md) for every model's exact request/response shape, flags, and caveats.
 
+### Python (uv + pyo3)
+
+The same models are available from Python (`uv` + `maturin` + `pyo3`):
+
+```bash
+# from a local checkout (editable, recommended for development)
+uv sync && uv run maturin develop  # or: pip install -e .  (needs maturin)
+uv run python -c "import zsfm; print(zsfm.list_models())"
+
+# from git / crates.io (once published)
+uv pip install "zsfm @ git+https://github.com/amaye15/zsfm-rs"
+uv pip install zsfm  # crates.io / PyPI
+```
+
+```python
+import zsfm
+print(zsfm.__version__, zsfm.list_forecasters()[:3])
+
+# download + convert (like `zsfm ttm convert`)
+zsfm.convert("ttm", dtype="f32")
+
+# load and forecast (like `zsfm ttm infer`)
+model = zsfm.TtmModel("gguf/ttm-f32.gguf", config="models/ibm-granite__granite-timeseries-ttm-r2/config.json")
+print(model.forecast([10.0, 10.5, 11.0, 10.8], horizon=4))
+
+# tabular (like `zsfm mitra infer`)
+mitra = zsfm.MitraModel("gguf/mitra-classification-f32.gguf", task="classification")
+print(mitra.predict_classification([[0.1, 1.2]], [0], [[0.2, 0.9]], n_classes=2))
+
+# delete cache (like `zsfm ttm delete`)
+zsfm.delete("ttm")
+```
+
+See [Python bindings](docs-guide/src/python.md) for the full API (11 forecasters + 5 tabular, `numpy` arrays, `convert`/`delete` dispatch).
+
 ---
 
 ## CLI overview
@@ -271,10 +306,12 @@ See also [benchmark/optimisation_log.md](benchmark/optimisation_log.md) for infe
 ```
 .
 ├── Cargo.toml                # root workspace (so `cargo install --git https://github.com/amaye15/zsfm-rs zsfm` works)
+├── pyproject.toml            # Python project (uv + maturin + pyo3, module `zsfm`)
 ├── zsfm-rs/                  # Rust workspace (all code lives here; also usable as `cargo build -p zsfm --manifest-path zsfm-rs/Cargo.toml`)
 │   ├── Cargo.toml            # workspace + shared [profile.release] (lto=fat, opt-level=3, strip)
 │   ├── crates/
 │   │   ├── zsfm/             # `zsfm` binary — one subcommand module per model (`cargo install zsfm`)
+│   │   ├── zsfm-python/      # `zsfm` Python extension (pyo3, `import zsfm`)
 │   │   ├── zsfm-gguf/        # GGUF reader/writer
 │   │   ├── zsfm-hub/         # HF download/upload + canonical-F32 cache helpers
 │   │   ├── zsfm-checkpoint/  # checkpoint loader (safetensors/pickle/ONNX/HDF5/npz/ckpt/gguf) + dtype casting
@@ -295,6 +332,7 @@ See also [benchmark/optimisation_log.md](benchmark/optimisation_log.md) for infe
 │       ├── cli-overview.md
 │       ├── models/time-series.md
 │       ├── models/tabular.md
+│       ├── python.md         # Python bindings (uv + pyo3 + maturin)
 │       ├── licensing.md
 │       └── development.md
 ├── benchmark/
@@ -305,6 +343,8 @@ See also [benchmark/optimisation_log.md](benchmark/optimisation_log.md) for infe
 │   ├── workflows/release.yml # cross-platform binaries + crates.io publish (on v* tag)
 │   └── workflows/docs.yml    # mdBook + rustdoc → GitHub Pages
 │   └── pages/                # custom landing page (guide + API cards)
+├── tests/
+│   └── python/test_zsfm.py   # pytest for Python bindings
 ├── benchmark.md              # pre-computed benchmark report (21 datasets, sweeps, ensembles)
 └── LICENSE (MIT)
 ```
@@ -316,12 +356,19 @@ Each model crate under `zsfm-rs/crates/models/` owns its architecture, checkpoin
 ## Development
 
 ```bash
+# Rust
 cd zsfm-rs
 cargo build --release --workspace
 cargo test  --release --workspace   # ~130 tests (GGUF round-trip, dtype casting, arch shapes, bench logic)
+
+# Python (uv + pyo3 + maturin)
+uv sync
+uv run maturin develop          # or: maturin develop --manifest-path zsfm-rs/crates/zsfm-python/Cargo.toml
+uv run pytest tests/python -v   # Python binding tests (import zsfm, list_models, delete, etc.)
+uv run python -c "import zsfm; print(zsfm.list_models())"
 ```
 
-CI (`.github/workflows/ci.yml:1`) runs both on every push to `main` and every PR (Linux + macOS).
+CI (`.github/workflows/ci.yml:1`) runs both on every push to `main` and every PR (Linux + macOS) — Rust (`cargo build`/`cargo test`) and Python (`uv run maturin develop` + `pytest`).
 
 ### Adding a new model
 

@@ -1,0 +1,43 @@
+[package]
+name = "zsfm-python"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Python bindings for zsfm (pyo3 + uv)"
+publish = false
+
+[lib]
+name = "zsfm"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { workspace = true }
+numpy = { workspace = true }
+ndarray = { workspace = true }
+anyhow.workspace = true
+serde_json.workspace = true
+zsfm-core.workspace = true
+zsfm-gguf.workspace = true
+zsfm-hub.workspace = true
+zsfm-checkpoint.workspace = true
+zsfm-toto.workspace = true
+zsfm-tabfm.workspace = true
+zsfm-mitra.workspace = true
+zsfm-tabdpt.workspace = true
+zsfm-tabicl.workspace = true
+zsfm-tabpfn.workspace = true
+zsfm-chronos.workspace = true
+zsfm-timesfm.workspace = true
+zsfm-sundial.workspace = true
+zsfm-ttm.workspace = true
+zsfm-lag-llama.workspace = true
+zsfm-moment.workspace = true
+zsfm-moirai.workspace = true
+zsfm-moirai2.workspace = true
+zsfm-flowstate.workspace = true
+zsfm-tirex.workspace = true
+# candle is pulled via the model crates; pyo3 bindings also need it for inference
+candle-core.workspace = true
+candle-nn.workspace = true
+tokio = { workspace = true }

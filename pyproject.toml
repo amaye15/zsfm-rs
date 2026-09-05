@@ -1,0 +1,40 @@
+[project]
+name = "zsfm"
+version = "0.1.0"
+description = "Python bindings for zsfm — zero-shot forecasting and tabular foundation models (uv + pyo3 + maturin)"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [{ name = "Andrew Mayes", email = "andrew@example.com" }]
+keywords = ["forecasting", "time-series", "tabular", "foundation-model", "gguf"]
+dependencies = ["numpy>=1.20"]
+classifiers = [
+  "Programming Language :: Rust",
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-benchmark"]
+
+[build-system]
+requires = ["maturin>=1.4,<2.0"]
+build-backend = "maturin"
+
+[tool.maturin]
+bindings = "pyo3"
+manifest-path = "zsfm-rs/crates/zsfm-python/Cargo.toml"
+module-name = "zsfm"
+features = ["pyo3/extension-module"]
+strip = true
+
+[tool.uv]
+managed = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests/python"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100

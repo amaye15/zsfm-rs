@@ -28,7 +28,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/amaye15/zsfm-rs"
@@ -37,34 +37,34 @@ repository = "https://github.com/amaye15/zsfm-rs"
 # Internal crates (path + version, so `cargo publish` accepts them as real
 # dependencies rather than dev-only path links). Keep this list's names/paths
 # in sync with `members` above; version is inherited from [workspace.package].
-zsfm-core = { path = "zsfm-rs/crates/zsfm-core", version = "0.2.1" }
-zsfm-gguf = { path = "zsfm-rs/crates/zsfm-gguf", version = "0.2.1" }
-zsfm-hub = { path = "zsfm-rs/crates/zsfm-hub", version = "0.2.1" }
-zsfm-nn = { path = "zsfm-rs/crates/zsfm-nn", version = "0.2.1" }
-zsfm-checkpoint = { path = "zsfm-rs/crates/zsfm-checkpoint", version = "0.2.1" }
-zsfm-toto = { path = "zsfm-rs/crates/models/toto", version = "0.2.1" }
-zsfm-tabfm = { path = "zsfm-rs/crates/models/tabfm", version = "0.2.1" }
-zsfm-mitra = { path = "zsfm-rs/crates/models/mitra", version = "0.2.1" }
-zsfm-tabdpt = { path = "zsfm-rs/crates/models/tabdpt", version = "0.2.1" }
-zsfm-tabicl = { path = "zsfm-rs/crates/models/tabicl", version = "0.2.1" }
-zsfm-tabpfn = { path = "zsfm-rs/crates/models/tabpfn", version = "0.2.1" }
-zsfm-chronos = { path = "zsfm-rs/crates/models/chronos", version = "0.2.1" }
-zsfm-timesfm = { path = "zsfm-rs/crates/models/timesfm", version = "0.2.1" }
-zsfm-sundial = { path = "zsfm-rs/crates/models/sundial", version = "0.2.1" }
-zsfm-ttm = { path = "zsfm-rs/crates/models/ttm", version = "0.2.1" }
-zsfm-lag-llama = { path = "zsfm-rs/crates/models/lag_llama", version = "0.2.1" }
-zsfm-moment = { path = "zsfm-rs/crates/models/moment", version = "0.2.1" }
-zsfm-moirai = { path = "zsfm-rs/crates/models/moirai", version = "0.2.1" }
-zsfm-moirai2 = { path = "zsfm-rs/crates/models/moirai2", version = "0.2.1" }
-zsfm-flowstate = { path = "zsfm-rs/crates/models/flowstate", version = "0.2.1" }
-zsfm-tirex = { path = "zsfm-rs/crates/models/tirex", version = "0.2.1" }
+zsfm-core = { path = "zsfm-rs/crates/zsfm-core", version = "0.2.2" }
+zsfm-gguf = { path = "zsfm-rs/crates/zsfm-gguf", version = "0.2.2" }
+zsfm-hub = { path = "zsfm-rs/crates/zsfm-hub", version = "0.2.2" }
+zsfm-nn = { path = "zsfm-rs/crates/zsfm-nn", version = "0.2.2" }
+zsfm-checkpoint = { path = "zsfm-rs/crates/zsfm-checkpoint", version = "0.2.2" }
+zsfm-toto = { path = "zsfm-rs/crates/models/toto", version = "0.2.2" }
+zsfm-tabfm = { path = "zsfm-rs/crates/models/tabfm", version = "0.2.2" }
+zsfm-mitra = { path = "zsfm-rs/crates/models/mitra", version = "0.2.2" }
+zsfm-tabdpt = { path = "zsfm-rs/crates/models/tabdpt", version = "0.2.2" }
+zsfm-tabicl = { path = "zsfm-rs/crates/models/tabicl", version = "0.2.2" }
+zsfm-tabpfn = { path = "zsfm-rs/crates/models/tabpfn", version = "0.2.2" }
+zsfm-chronos = { path = "zsfm-rs/crates/models/chronos", version = "0.2.2" }
+zsfm-timesfm = { path = "zsfm-rs/crates/models/timesfm", version = "0.2.2" }
+zsfm-sundial = { path = "zsfm-rs/crates/models/sundial", version = "0.2.2" }
+zsfm-ttm = { path = "zsfm-rs/crates/models/ttm", version = "0.2.2" }
+zsfm-lag-llama = { path = "zsfm-rs/crates/models/lag_llama", version = "0.2.2" }
+zsfm-moment = { path = "zsfm-rs/crates/models/moment", version = "0.2.2" }
+zsfm-moirai = { path = "zsfm-rs/crates/models/moirai", version = "0.2.2" }
+zsfm-moirai2 = { path = "zsfm-rs/crates/models/moirai2", version = "0.2.2" }
+zsfm-flowstate = { path = "zsfm-rs/crates/models/flowstate", version = "0.2.2" }
+zsfm-tirex = { path = "zsfm-rs/crates/models/tirex", version = "0.2.2" }
 
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 clap = { version = "4", features = ["derive", "env"] }
 byteorder = "1"
-reqwest = { version = "0.11", features = ["stream", "json"] }
+reqwest = { version = "0.11", default-features = false, features = ["stream", "json", "rustls-tls"] }
 futures-util = "0.3"
 tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["io"] }

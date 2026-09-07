@@ -105,6 +105,13 @@ jobs:
 
       - name: Build sdist (once, on ubuntu)
         if: matrix.os == 'ubuntu-latest'
+        # PyO3/maturin-action's sccache:"true" sets RUSTC_WRAPPER=sccache for the rest of
+        # this job, but the sccache binary it fetches only lives on PATH inside its own
+        # step (often inside its manylinux container) — a later plain `run:` step trying
+        # to invoke rustc through it (maturin sdist runs `cargo metadata`) fails with
+        # "No such file or directory". sdist doesn't compile anything, so just drop it.
+        env:
+          RUSTC_WRAPPER: ""
         run: maturin sdist --out dist --manifest-path zsfm-rs/crates/zsfm-python/Cargo.toml
 
       - uses: actions/upload-artifact@v4

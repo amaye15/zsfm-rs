@@ -101,11 +101,11 @@ jobs:
 
       - name: Install maturin for sdist
         if: matrix.os == 'ubuntu-latest'
-        run: uv pip install maturin
+        run: uv pip install --system maturin
 
       - name: Build sdist (once, on ubuntu)
         if: matrix.os == 'ubuntu-latest'
-        run: uv run maturin sdist --out dist --manifest-path zsfm-rs/crates/zsfm-python/Cargo.toml
+        run: maturin sdist --out dist --manifest-path zsfm-rs/crates/zsfm-python/Cargo.toml
 
       - uses: actions/upload-artifact@v4
         with:
@@ -155,5 +155,5 @@ jobs:
           TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
         run: |
           # maturin publish handles sdist+wheel; fallback to twine for robustness
-          uv pip install maturin twine
-          uv run maturin publish --skip-existing dist/* || uv run twine upload --skip-existing dist/*
+          uv pip install --system maturin twine
+          maturin publish --skip-existing dist/* || twine upload --skip-existing dist/*

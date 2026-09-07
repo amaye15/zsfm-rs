@@ -44,6 +44,41 @@ print(pkg["version"])
 
 echo "Publishing zsfm-rs v$VERSION to crates.io ..."
 
+# crates.io rate-limits publishing (a token-bucket burst, then a slow refill —
+# see https://crates.io/docs/rate-limits). A long run publishing 22 crates back
+# to back can burn through the burst allowance and get a 429; retry with
+# exponential backoff rather than failing the whole release over it. Any other
+# failure (compile error, bad token, etc.) fails immediately — no point
+# retrying those.
+publish_with_retry() {
+  local crate="$1"
+  local attempt=1
+  local max_attempts=6
+  local backoff=30
+  local output
+
+  while true; do
+    if output=$(cargo publish -p "$crate" 2>&1); then
+      echo "$output"
+      return 0
+    fi
+    echo "$output"
+    if echo "$output" | grep -qi "429 Too Many Requests\|too many new crates\|too many requests"; then
+      if [ "$attempt" -ge "$max_attempts" ]; then
+        echo "== $crate: still rate-limited after $max_attempts attempts, giving up =="
+        return 1
+      fi
+      echo "== $crate: rate-limited by crates.io (attempt $attempt/$max_attempts), waiting ${backoff}s …"
+      sleep "$backoff"
+      backoff=$((backoff * 2))
+      attempt=$((attempt + 1))
+      continue
+    fi
+    echo "== $crate: publish failed for a non-rate-limit reason, giving up =="
+    return 1
+  done
+}
+
 for crate in "${CRATES[@]}"; do
   status=$(curl -s -o /dev/null -w "%{http_code}" -A "zsfm-rs-publish-script (github.com/amaye15/zsfm-rs)" \
     "https://crates.io/api/v1/crates/$crate/$VERSION")
@@ -52,7 +87,9 @@ for crate in "${CRATES[@]}"; do
     continue
   fi
   echo "== publishing $crate $VERSION =="
-  cargo publish -p "$crate"
+  if ! publish_with_retry "$crate"; then
+    exit 1
+  fi
   # crates.io's sparse index needs a moment to propagate before the next
   # crate's dependency resolution can see this one.
   sleep 20

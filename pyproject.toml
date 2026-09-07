@@ -1,6 +1,6 @@
 [project]
 name = "zsfm"
-version = "0.2.5"
+version = "0.2.6"
 description = "Python bindings for zsfm — zero-shot forecasting and tabular foundation models (uv + pyo3 + maturin)"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -28,6 +28,13 @@ manifest-path = "zsfm-rs/crates/zsfm-python/Cargo.toml"
 module-name = "zsfm"
 features = ["pyo3/extension-module"]
 strip = true
+# maturin auto-declares `License-File: LICENSE` in PKG-INFO (found by scanning
+# the pyproject.toml directory per PEP 639) but its sdist step only bundles
+# files under the Rust crate's own directory (manifest-path points into a
+# nested workspace member) — the repo-root LICENSE never actually made it into
+# the archive, so PyPI rejected the upload with a metadata/content mismatch.
+# Explicitly include it so the file matches what the metadata promises.
+include = ["LICENSE"]
 
 [tool.uv]
 managed = true

@@ -152,15 +152,22 @@ jobs:
         with:
           enable-cache: true
 
-      # Publish via maturin (expects MATURIN_PYPI_TOKEN) or twine (PYPI_API_TOKEN).
-      # The repo secret is PYPI_TOKEN, so we expose it as both for compat.
+      # twine, not `maturin publish`: this job only downloads pre-built dist/*
+      # artifacts (no repo checkout, no Cargo.toml), which `maturin publish`
+      # can't work with — it always needs a manifest to resolve project
+      # context even when given already-built files. twine just uploads files.
       - name: Publish to PyPI
         env:
-          MATURIN_PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
-          PYPI_API_TOKEN: ${{ secrets.PYPI_TOKEN }}
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
         run: |
-          # maturin publish handles sdist+wheel; fallback to twine for robustness
-          uv pip install --system maturin twine
-          maturin publish --skip-existing dist/* || twine upload --skip-existing dist/*
+          uv pip install --system twine
+          ls -1 dist/*
+          for attempt in 1 2 3; do
+            if twine upload --verbose --skip-existing dist/*; then
+              exit 0
+            fi
+            echo "twine upload failed (attempt $attempt/3)"
+            [ "$attempt" -lt 3 ] && sleep 30
+          done
+          exit 1

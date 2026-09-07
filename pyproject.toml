@@ -1,6 +1,6 @@
 [project]
 name = "zsfm"
-version = "0.2.4"
+version = "0.2.5"
 description = "Python bindings for zsfm — zero-shot forecasting and tabular foundation models (uv + pyo3 + maturin)"
 readme = "README.md"
 requires-python = ">=3.8"

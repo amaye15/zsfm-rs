@@ -165,12 +165,12 @@ pub async fn run(command: Command) -> anyhow::Result<()> {
                 let ctx = &raw_variates[0];
                 anyhow::ensure!(!ctx.is_empty(), "context series must not be empty");
                 total_ctx += ctx.len();
-                let (quantiles, mean) = model.forecast(ctx, horizon).context("forecast")?;
+                let (quantiles, median) = model.forecast(ctx, horizon).context("forecast")?;
                 let mut q_map: BTreeMap<String, Vec<f32>> = BTreeMap::new();
                 for (i, q) in config.quantiles.iter().enumerate() {
                     q_map.insert(format!("{q:.2}"), quantiles[i].clone());
                 }
-                fc_outputs.push(zsfm_core::ForecastOutput::Univariate { point: mean, quantiles: q_map });
+                fc_outputs.push(zsfm_core::ForecastOutput::Univariate { point: median, quantiles: q_map });
             }
             println!("{}", zsfm_core::forecast_response_json("tirex", total_ctx, horizon, fc_outputs)?);
         }

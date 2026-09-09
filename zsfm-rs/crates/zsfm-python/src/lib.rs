@@ -465,6 +465,20 @@ impl TotoModel {
         }
         Ok(out)
     }
+
+    /// Full quantile matrix for a univariate context: one row per quantile level
+    /// (see `quantiles()` for the levels, in the same order), each `horizon` long.
+    fn forecast_quantiles(&self, context: Vec<f32>, horizon: usize) -> PyResult<Vec<Vec<f32>>> {
+        let data = vec![context.clone()];
+        let mask = vec![vec![true; context.len()]];
+        let qmat = self.inner.forecast(&data, &mask, horizon).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        Ok(qmat.into_iter().map(|q| q[0].clone()).collect())
+    }
+
+    /// The 9 quantile levels each row of `forecast_quantiles()` corresponds to.
+    fn quantiles(&self) -> Vec<f32> {
+        vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+    }
 }
 
 use zsfm_timesfm::infer::TimesFMModel as RustTimesFmModel;
@@ -481,6 +495,22 @@ impl TimesFmModel {
     fn forecast(&self, context: Vec<f32>, horizon: usize) -> PyResult<Vec<f32>> {
         let out = self.inner.forecast(&context, horizon).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         Ok(out.into_iter().next().unwrap_or_default())
+    }
+
+    /// Full quantile matrix: one row per quantile level (see `quantiles()`), each `horizon` long.
+    /// TimesFM's point forecast (from `forecast()`) is a separate dedicated model output, not
+    /// derived from these quantiles.
+    fn forecast_quantiles(&self, context: Vec<f32>, horizon: usize) -> PyResult<Vec<Vec<f32>>> {
+        let mut out = self.inner.forecast(&context, horizon).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        if !out.is_empty() {
+            out.remove(0); // drop the dedicated point-forecast row, keep q0.1..q0.9
+        }
+        Ok(out)
+    }
+
+    /// The 9 quantile levels each row of `forecast_quantiles()` corresponds to.
+    fn quantiles(&self) -> Vec<f32> {
+        vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
     }
 }
 
@@ -634,6 +664,16 @@ impl FlowStateModel {
         let median_idx = self.inner.config.median_index();
         Ok(qmat[median_idx].clone())
     }
+
+    /// Full quantile matrix: one row per quantile level (see `quantiles()`), each `horizon` long.
+    fn forecast_quantiles(&self, context: Vec<f32>, horizon: usize) -> PyResult<Vec<Vec<f32>>> {
+        self.inner.forecast(&context, horizon).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+    }
+
+    /// The quantile levels each row of `forecast_quantiles()` corresponds to (from config.json).
+    fn quantiles(&self) -> Vec<f32> {
+        self.inner.config.quantiles().to_vec()
+    }
 }
 
 use zsfm_tirex::config::TiRexConfig;
@@ -649,9 +689,24 @@ impl TirexModel {
         let inner = RustTirexModel::load(&p, cfg).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("load TiRex {gguf}: {e}")))?;
         Ok(Self { inner })
     }
+    /// Returns the median (q0.5) forecast. Despite its old internal name, the second
+    /// element of the underlying Rust `forecast()` tuple is the median quantile row,
+    /// not a separate mean statistic — `zsfm_tirex::infer::TiRexModel::forecast` docs it
+    /// explicitly.
     fn forecast(&self, context: Vec<f32>, horizon: usize) -> PyResult<Vec<f32>> {
-        let ( _q, mean) = self.inner.forecast(&context, horizon).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-        Ok(mean)
+        let (_quantiles, median) = self.inner.forecast(&context, horizon).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        Ok(median)
+    }
+
+    /// Full quantile matrix: one row per quantile level (see `quantiles()`), each `horizon` long.
+    fn forecast_quantiles(&self, context: Vec<f32>, horizon: usize) -> PyResult<Vec<Vec<f32>>> {
+        let (quantiles, _median) = self.inner.forecast(&context, horizon).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        Ok(quantiles)
+    }
+
+    /// The quantile levels each row of `forecast_quantiles()` corresponds to.
+    fn quantiles(&self) -> Vec<f32> {
+        TiRexConfig::default_from_ckpt().quantiles
     }
 }
 

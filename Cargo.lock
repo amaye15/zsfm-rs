@@ -3010,7 +3010,7 @@ dependencies = [
 
 [[package]]
 name = "zsfm"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "anyhow",
  "candle-core",
@@ -3044,7 +3044,7 @@ dependencies = [
 
 [[package]]
 name = "zsfm-bench"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "anyhow",
  "candle-core",
@@ -3071,7 +3071,7 @@ dependencies = [
 
 [[package]]
 name = "zsfm-checkpoint"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "anyhow",
  "candle-core",
@@ -3085,7 +3085,7 @@ dependencies = [
 
 [[package]]
 name = "zsfm-chronos"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "anyhow",
  "byteorder",
@@ -3103,7 +3103,7 @@ dependencies = [
 
 [[package]]
 name = "zsfm-core"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "anyhow",
  "serde",
@@ -3112,7 +3112,7 @@ dependencies = [
 
 [[package]]
 name = "zsfm-flowstate"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "anyhow",
  "byteorder",
@@ -3131,7 +3131,7 @@ dependencies = [
 
 [[package]]
 name = "zsfm-gguf"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "anyhow",
  "byteorder",
@@ -3139,7 +3139,7 @@ dependencies = [
 
 [[package]]
 name = "zsfm-hub"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -3155,7 +3155,7 @@ dependencies = [
 
 [[package]]
 name = "zsfm-lag-llama"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "anyhow",
  "byteorder",
@@ -3174,7 +3174,7 @@ dependencies = [
 
 [[package]]
 name = "zsfm-mitra"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "anyhow",
  "byteorder",
@@ -3192,7 +3192,7 @@ dependencies = [
 
 [[package]]
 name = "zsfm-moirai"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "anyhow",
  "byteorder",
@@ -3211,7 +3211,7 @@ dependencies = [
 
 [[package]]
 name = "zsfm-moirai2"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "anyhow",
  "byteorder",
@@ -3230,7 +3230,7 @@ dependencies = [
 
 [[package]]
 name = "zsfm-moment"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "anyhow",
  "byteorder",
@@ -3248,7 +3248,7 @@ dependencies = [
 
 [[package]]
 name = "zsfm-nn"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "anyhow",
  "candle-core",
@@ -3256,7 +3256,7 @@ dependencies = [
 
 [[package]]
 name = "zsfm-python"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "anyhow",
  "candle-core",
@@ -3290,7 +3290,7 @@ dependencies = [
 
 [[package]]
 name = "zsfm-sundial"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "anyhow",
  "byteorder",
@@ -3308,7 +3308,7 @@ dependencies = [
 
 [[package]]
 name = "zsfm-tabdpt"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "anyhow",
  "byteorder",
@@ -3326,7 +3326,7 @@ dependencies = [
 
 [[package]]
 name = "zsfm-tabfm"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "anyhow",
  "byteorder",
@@ -3345,7 +3345,7 @@ dependencies = [
 
 [[package]]
 name = "zsfm-tabicl"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "anyhow",
  "byteorder",
@@ -3363,7 +3363,7 @@ dependencies = [
 
 [[package]]
 name = "zsfm-tabpfn"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "anyhow",
  "byteorder",
@@ -3381,7 +3381,7 @@ dependencies = [
 
 [[package]]
 name = "zsfm-timesfm"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "anyhow",
  "byteorder",
@@ -3399,7 +3399,7 @@ dependencies = [
 
 [[package]]
 name = "zsfm-tirex"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "anyhow",
  "byteorder",
@@ -3417,7 +3417,7 @@ dependencies = [
 
 [[package]]
 name = "zsfm-toto"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "anyhow",
  "byteorder",
@@ -3435,7 +3435,7 @@ dependencies = [
 
 [[package]]
 name = "zsfm-ttm"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "anyhow",
  "byteorder",

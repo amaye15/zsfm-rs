@@ -147,11 +147,13 @@ impl TiRexModel {
         Ok(TiRexModel { device, config, in_emb, blocks, out_norm, out_emb })
     }
 
-    /// Forecast quantiles and mean for a single time series.
+    /// Forecast quantiles and the median for a single time series.
     ///
-    /// Returns `(quantiles, mean)` where:
+    /// Returns `(quantiles, median)` where:
     /// - `quantiles`: `[prediction_length, num_quantiles]` in the config's quantile order
-    /// - `mean`: `[prediction_length]` (median / 0.5 quantile)
+    /// - `median`: `[prediction_length]` (the 0.5 quantile row, for convenience — despite the
+    ///   name this function and callers used historically, it is the median, not a distinct
+    ///   mean statistic)
     pub fn forecast(&self, context: &[f32], prediction_length: usize) -> Result<(Vec<Vec<f32>>, Vec<f32>)> {
         let cfg = &self.config;
         let patch_size = cfg.patch_size;
@@ -280,9 +282,9 @@ impl TiRexModel {
             }
         }
 
-        let mean: Vec<f32> = (0..prediction_length).map(|t| quantiles[median_idx][t]).collect();
+        let median: Vec<f32> = (0..prediction_length).map(|t| quantiles[median_idx][t]).collect();
 
-        Ok((quantiles, mean))
+        Ok((quantiles, median))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -700,7 +702,7 @@ impl zsfm_core::Forecaster for TiRexModel {
         horizon: usize,
     ) -> Result<zsfm_core::QuantileMatrix> {
         anyhow::ensure!(context.len() == 1, "TiRexModel only supports univariate forecasting (1 variate)");
-        let (quantiles, _mean) = TiRexModel::forecast(self, &context[0], horizon)?; // [n_q][horizon]
+        let (quantiles, _median) = TiRexModel::forecast(self, &context[0], horizon)?; // [n_q][horizon]
         Ok(quantiles.into_iter().map(|row| vec![row]).collect())
     }
 }

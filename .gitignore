@@ -43,3 +43,5 @@ timer-v3/Large-Time-Series-Model/
 
 # Hugging Face
 hf_openapi.md
+
+zsfm-rs/models*

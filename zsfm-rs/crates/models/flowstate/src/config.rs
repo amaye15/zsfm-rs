@@ -33,7 +33,11 @@ impl FlowStateConfig {
 
     /// Number of input channels (value + missing mask).
     pub fn n_inputs(&self) -> u32 {
-        if self.with_missing { 2 } else { 1 }
+        if self.with_missing {
+            2
+        } else {
+            1
+        }
     }
 
     /// Legendre basis range for "legs" / "hlegs" decoder.
@@ -47,5 +51,9 @@ impl FlowStateConfig {
     }
 }
 
-fn default_bool_true() -> bool { true }
-fn default_u32_2048() -> u32 { 2048 }
+fn default_bool_true() -> bool {
+    true
+}
+fn default_u32_2048() -> u32 {
+    2048
+}

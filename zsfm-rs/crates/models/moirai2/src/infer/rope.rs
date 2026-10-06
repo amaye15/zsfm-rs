@@ -33,14 +33,18 @@ pub fn apply_partial_rope(
                 let cos_v = cos_table[trig_base + i];
                 let sin_v = sin_table[trig_base + i];
                 let idx_even = base + 2 * i;
-                let idx_odd  = base + 2 * i + 1;
+                let idx_odd = base + 2 * i + 1;
                 let v_even = x_data[idx_even];
-                let v_odd  = x_data[idx_odd];
+                let v_odd = x_data[idx_odd];
                 x_data[idx_even] = cos_v * v_even - sin_v * v_odd;
-                x_data[idx_odd]  = sin_v * v_even + cos_v * v_odd;
+                x_data[idx_odd] = sin_v * v_even + cos_v * v_odd;
             }
         }
     }
 
-    Ok(Tensor::from_vec(x_data, (n_heads, seq_len, head_dim), device)?)
+    Ok(Tensor::from_vec(
+        x_data,
+        (n_heads, seq_len, head_dim),
+        device,
+    )?)
 }

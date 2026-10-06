@@ -5,8 +5,8 @@ use anyhow::{Context, Result};
 use candle_core::quantized::gguf_file;
 use candle_core::{DType, Device, Tensor};
 
-use simdeez::prelude::*;
 use simdeez::math::{SimdMathF32Core, SimdMathF32Hyperbolic};
+use simdeez::prelude::*;
 
 use crate::config::TiRexConfig;
 
@@ -15,10 +15,10 @@ use crate::config::TiRexConfig;
 // ---------------------------------------------------------------------------
 
 struct Block {
-    norm_slstm: Vec<f32>,      // [D]
-    fizo_w: Vec<f32>,          // [NH, 4*DH, DH] — f,i,z,o gates fused at load time
-    slstm_kernel_t: Vec<f32>,  // [NH, NG*DH, DH] = [4, 512, 128] — transposed for SIMD dot
-    slstm_bias: Vec<f32>,      // [NG*NH*DH = 2048] in [NG, NH, DH] order
+    norm_slstm: Vec<f32>,     // [D]
+    fizo_w: Vec<f32>,         // [NH, 4*DH, DH] — f,i,z,o gates fused at load time
+    slstm_kernel_t: Vec<f32>, // [NH, NG*DH, DH] = [4, 512, 128] — transposed for SIMD dot
+    slstm_bias: Vec<f32>,     // [NG*NH*DH = 2048] in [NG, NH, DH] order
     group_norm_w: Vec<f32>,   // [D] (learned offset, applied as 1 + w)
     norm_ffn: Vec<f32>,       // [D]
     ffn_gate_w: Tensor,       // [UP, D]
@@ -27,11 +27,11 @@ struct Block {
 }
 
 struct EmbedBlock {
-    hidden_w: Tensor,   // [H_DIM, IN_DIM]
-    hidden_b: Vec<f32>, // [H_DIM]
-    output_w: Tensor,   // [OUT_DIM, H_DIM]
-    output_b: Vec<f32>, // [OUT_DIM]
-    residual_w: Tensor, // [OUT_DIM, IN_DIM]
+    hidden_w: Tensor,     // [H_DIM, IN_DIM]
+    hidden_b: Vec<f32>,   // [H_DIM]
+    output_w: Tensor,     // [OUT_DIM, H_DIM]
+    output_b: Vec<f32>,   // [OUT_DIM]
+    residual_w: Tensor,   // [OUT_DIM, IN_DIM]
     residual_b: Vec<f32>, // [OUT_DIM]
 }
 
@@ -63,7 +63,9 @@ fn load_vec(
     name: &str,
     device: &Device,
 ) -> Result<Vec<f32>> {
-    Ok(load_t(content, reader, name, device)?.flatten_all()?.to_vec1()?)
+    Ok(load_t(content, reader, name, device)?
+        .flatten_all()?
+        .to_vec1()?)
 }
 
 fn load_embed_block(
@@ -74,10 +76,10 @@ fn load_embed_block(
 ) -> Result<EmbedBlock> {
     let p = |s: &str| format!("{prefix}.{s}");
     Ok(EmbedBlock {
-        hidden_w:   load_t(&content, reader, &p("hidden.weight"), device)?,
-        hidden_b:   load_vec(&content, reader, &p("hidden.bias"), device)?,
-        output_w:   load_t(&content, reader, &p("output.weight"), device)?,
-        output_b:   load_vec(&content, reader, &p("output.bias"), device)?,
+        hidden_w: load_t(&content, reader, &p("hidden.weight"), device)?,
+        hidden_b: load_vec(&content, reader, &p("hidden.bias"), device)?,
+        output_w: load_t(&content, reader, &p("output.weight"), device)?,
+        output_b: load_vec(&content, reader, &p("output.bias"), device)?,
         residual_w: load_t(&content, reader, &p("residual.weight"), device)?,
         residual_b: load_vec(&content, reader, &p("residual.bias"), device)?,
     })
@@ -93,8 +95,8 @@ impl TiRexModel {
 
         let in_emb = load_embed_block(&content, &mut reader, "in_emb", &device)?;
 
-        let nh  = config.num_heads;
-        let dh  = config.head_dim();
+        let nh = config.num_heads;
+        let dh = config.head_dim();
         let wpp = dh * dh; // weights per head per gate
 
         let mut blocks = Vec::with_capacity(config.num_blocks);
@@ -108,10 +110,14 @@ impl TiRexModel {
             let ogate_w = load_vec(&content, &mut reader, &p("ogate.weight"), &device)?;
             let mut fizo_w = vec![0.0f32; nh * 4 * wpp];
             for h in 0..nh {
-                fizo_w[h*4*wpp..       h*4*wpp+wpp  ].copy_from_slice(&fgate_w[h*wpp..(h+1)*wpp]);
-                fizo_w[h*4*wpp+wpp..   h*4*wpp+2*wpp].copy_from_slice(&igate_w[h*wpp..(h+1)*wpp]);
-                fizo_w[h*4*wpp+2*wpp.. h*4*wpp+3*wpp].copy_from_slice(&zgate_w[h*wpp..(h+1)*wpp]);
-                fizo_w[h*4*wpp+3*wpp.. h*4*wpp+4*wpp].copy_from_slice(&ogate_w[h*wpp..(h+1)*wpp]);
+                fizo_w[h * 4 * wpp..h * 4 * wpp + wpp]
+                    .copy_from_slice(&fgate_w[h * wpp..(h + 1) * wpp]);
+                fizo_w[h * 4 * wpp + wpp..h * 4 * wpp + 2 * wpp]
+                    .copy_from_slice(&igate_w[h * wpp..(h + 1) * wpp]);
+                fizo_w[h * 4 * wpp + 2 * wpp..h * 4 * wpp + 3 * wpp]
+                    .copy_from_slice(&zgate_w[h * wpp..(h + 1) * wpp]);
+                fizo_w[h * 4 * wpp + 3 * wpp..h * 4 * wpp + 4 * wpp]
+                    .copy_from_slice(&ogate_w[h * wpp..(h + 1) * wpp]);
             }
 
             let raw_kernel = load_vec(&content, &mut reader, &p("slstm_kernel"), &device)?;
@@ -129,22 +135,29 @@ impl TiRexModel {
             }
 
             blocks.push(Block {
-                norm_slstm:    load_vec(&content, &mut reader, &p("norm_slstm"), &device)?,
+                norm_slstm: load_vec(&content, &mut reader, &p("norm_slstm"), &device)?,
                 fizo_w,
                 slstm_kernel_t,
-                slstm_bias:    load_vec(&content, &mut reader, &p("slstm_bias"), &device)?,
+                slstm_bias: load_vec(&content, &mut reader, &p("slstm_bias"), &device)?,
                 group_norm_w: load_vec(&content, &mut reader, &p("group_norm"), &device)?,
-                norm_ffn:     load_vec(&content, &mut reader, &p("norm_ffn"), &device)?,
-                ffn_gate_w:   load_t(&content, &mut reader, &p("ffn_gate.weight"), &device)?,
-                ffn_up_w:     load_t(&content, &mut reader, &p("ffn_up.weight"), &device)?,
-                ffn_down_w:   load_t(&content, &mut reader, &p("ffn_down.weight"), &device)?,
+                norm_ffn: load_vec(&content, &mut reader, &p("norm_ffn"), &device)?,
+                ffn_gate_w: load_t(&content, &mut reader, &p("ffn_gate.weight"), &device)?,
+                ffn_up_w: load_t(&content, &mut reader, &p("ffn_up.weight"), &device)?,
+                ffn_down_w: load_t(&content, &mut reader, &p("ffn_down.weight"), &device)?,
             });
         }
 
         let out_norm = load_vec(&content, &mut reader, "out_norm", &device)?;
         let out_emb = load_embed_block(&content, &mut reader, "out_emb", &device)?;
 
-        Ok(TiRexModel { device, config, in_emb, blocks, out_norm, out_emb })
+        Ok(TiRexModel {
+            device,
+            config,
+            in_emb,
+            blocks,
+            out_norm,
+            out_emb,
+        })
     }
 
     /// Forecast quantiles and the median for a single time series.
@@ -154,11 +167,19 @@ impl TiRexModel {
     /// - `median`: `[prediction_length]` (the 0.5 quantile row, for convenience — despite the
     ///   name this function and callers used historically, it is the median, not a distinct
     ///   mean statistic)
-    pub fn forecast(&self, context: &[f32], prediction_length: usize) -> Result<(Vec<Vec<f32>>, Vec<f32>)> {
+    pub fn forecast(
+        &self,
+        context: &[f32],
+        prediction_length: usize,
+    ) -> Result<(Vec<Vec<f32>>, Vec<f32>)> {
         let cfg = &self.config;
         let patch_size = cfg.patch_size;
         let n_quantiles = cfg.num_quantiles;
-        let median_idx = cfg.quantiles.iter().position(|&q| (q - 0.5).abs() < 1e-6).unwrap_or(4);
+        let median_idx = cfg
+            .quantiles
+            .iter()
+            .position(|&q| (q - 0.5).abs() < 1e-6)
+            .unwrap_or(4);
 
         // Number of AR steps needed
         let n_steps = prediction_length.div_ceil(patch_size);
@@ -177,12 +198,20 @@ impl TiRexModel {
             let (loc, scale) = standard_scaler(&full_ctx);
 
             // Scale values, zero-out NaN; build mask
-            let s_vals: Vec<f32> = full_ctx.iter().map(|&x| {
-                if x.is_nan() { 0.0f32 } else { (x - loc) / scale }
-            }).collect();
-            let s_mask: Vec<f32> = full_ctx.iter().map(|&x| {
-                if x.is_nan() { 0.0f32 } else { 1.0f32 }
-            }).collect();
+            let s_vals: Vec<f32> = full_ctx
+                .iter()
+                .map(|&x| {
+                    if x.is_nan() {
+                        0.0f32
+                    } else {
+                        (x - loc) / scale
+                    }
+                })
+                .collect();
+            let s_mask: Vec<f32> = full_ctx
+                .iter()
+                .map(|&x| if x.is_nan() { 0.0f32 } else { 1.0f32 })
+                .collect();
 
             // Patch: [num_patches, patch_size]
             let num_patches = cfg.train_ctx_len / patch_size;
@@ -208,34 +237,49 @@ impl TiRexModel {
 
             // ResidualBlock (input patch embedding): [num_patches, in_dim] → [num_patches, D]
             let mut hidden = residual_block_forward(
-                &x_in, num_patches, in_dim, cfg.input_ff_dim, cfg.embedding_dim,
-                &self.in_emb, &self.device,
+                &x_in,
+                num_patches,
+                in_dim,
+                cfg.input_ff_dim,
+                cfg.embedding_dim,
+                &self.in_emb,
+                &self.device,
             )?;
 
             // Pre-allocate scratch buffers shared across all 12 sLSTM blocks.
             // Each block previously re-allocated these on every call; pre-allocating once
             // eliminates 12 × ~(1.5 MB) of heap churn per forecast() call.
             let ng = 4usize;
-            let d  = cfg.embedding_dim;
-            let mut sc_xg    = vec![0.0f32; num_patches * ng * d]; // fused gate output / x_g
-            let mut sc_hout  = vec![0.0f32; num_patches * d];       // h_out
-            let mut sc_y     = vec![0.0f32; num_patches * d];       // group-norm output y
-            let mut sc_xn    = vec![0.0f32; num_patches * d];       // pre-norm copy x_n
-            let mut sc_raw   = vec![0.0f32; ng * d];                // raw = wx + ry + bias
-            let mut sc_ry_raw = vec![0.0f32; ng * d];               // compute_ry intermediate
-            let mut sc_ry_out = vec![0.0f32; ng * d];               // compute_ry output
-            let mut sc_hnew  = vec![0.0f32; d];                     // h_new (swapped, not re-alloc)
-            let mut sc_cnew  = vec![0.0f32; d];
-            let mut sc_nnew  = vec![0.0f32; d];
-            let mut sc_mnew  = vec![0.0f32; d];
+            let d = cfg.embedding_dim;
+            let mut sc_xg = vec![0.0f32; num_patches * ng * d]; // fused gate output / x_g
+            let mut sc_hout = vec![0.0f32; num_patches * d]; // h_out
+            let mut sc_y = vec![0.0f32; num_patches * d]; // group-norm output y
+            let mut sc_xn = vec![0.0f32; num_patches * d]; // pre-norm copy x_n
+            let mut sc_raw = vec![0.0f32; ng * d]; // raw = wx + ry + bias
+            let mut sc_ry_raw = vec![0.0f32; ng * d]; // compute_ry intermediate
+            let mut sc_ry_out = vec![0.0f32; ng * d]; // compute_ry output
+            let mut sc_hnew = vec![0.0f32; d]; // h_new (swapped, not re-alloc)
+            let mut sc_cnew = vec![0.0f32; d];
+            let mut sc_nnew = vec![0.0f32; d];
+            let mut sc_mnew = vec![0.0f32; d];
 
             // 12 sLSTM blocks
             for block in &self.blocks {
                 hidden = self.forward_slstm_block(
-                    &hidden, num_patches, block,
-                    &mut sc_xg, &mut sc_hout, &mut sc_y, &mut sc_xn,
-                    &mut sc_raw, &mut sc_ry_raw, &mut sc_ry_out,
-                    &mut sc_hnew, &mut sc_cnew, &mut sc_nnew, &mut sc_mnew,
+                    &hidden,
+                    num_patches,
+                    block,
+                    &mut sc_xg,
+                    &mut sc_hout,
+                    &mut sc_y,
+                    &mut sc_xn,
+                    &mut sc_raw,
+                    &mut sc_ry_raw,
+                    &mut sc_ry_out,
+                    &mut sc_hnew,
+                    &mut sc_cnew,
+                    &mut sc_nnew,
+                    &mut sc_mnew,
                 )?;
             }
 
@@ -245,8 +289,13 @@ impl TiRexModel {
             // output_patch_embedding: [num_patches, D] → [num_patches, Q*P]
             let out_dim = cfg.output_dim();
             let preds = residual_block_forward(
-                &hidden, num_patches, cfg.embedding_dim, cfg.input_ff_dim, out_dim,
-                &self.out_emb, &self.device,
+                &hidden,
+                num_patches,
+                cfg.embedding_dim,
+                cfg.input_ff_dim,
+                out_dim,
+                &self.out_emb,
+                &self.device,
             )?;
             // preds: [num_patches, Q*patch_size] = [num_patches, 9*32]
             // Take last patch: [Q*patch_size = 288]
@@ -282,26 +331,33 @@ impl TiRexModel {
             }
         }
 
-        let median: Vec<f32> = (0..prediction_length).map(|t| quantiles[median_idx][t]).collect();
+        let median: Vec<f32> = (0..prediction_length)
+            .map(|t| quantiles[median_idx][t])
+            .collect();
 
         Ok((quantiles, median))
     }
 
     #[allow(clippy::too_many_arguments)]
     fn forward_slstm_block(
-        &self, x: &[f32], s: usize, blk: &Block,
-        sc_xg:    &mut [f32],  // [s * ng * d]  — fused gate projection output
-        sc_hout:  &mut [f32],  // [s * d]        — sLSTM hidden outputs
-        sc_y:     &mut [f32],  // [s * d]        — group-norm output
-        sc_xn:    &mut [f32],  // [s * d]        — pre-norm scratch
-        sc_raw:   &mut [f32],  // [ng * d]       — wx + ry + bias per step
+        &self,
+        x: &[f32],
+        s: usize,
+        blk: &Block,
+        sc_xg: &mut [f32],     // [s * ng * d]  — fused gate projection output
+        sc_hout: &mut [f32],   // [s * d]        — sLSTM hidden outputs
+        sc_y: &mut [f32],      // [s * d]        — group-norm output
+        sc_xn: &mut [f32],     // [s * d]        — pre-norm scratch
+        sc_raw: &mut [f32],    // [ng * d]       — wx + ry + bias per step
         sc_ry_raw: &mut [f32], // [ng * d]       — compute_ry intermediate
         sc_ry_out: &mut [f32], // [ng * d]       — compute_ry output
-        sc_hnew: &mut Vec<f32>, sc_cnew: &mut Vec<f32>,
-        sc_nnew: &mut Vec<f32>, sc_mnew: &mut Vec<f32>,
+        sc_hnew: &mut Vec<f32>,
+        sc_cnew: &mut Vec<f32>,
+        sc_nnew: &mut Vec<f32>,
+        sc_mnew: &mut Vec<f32>,
     ) -> Result<Vec<f32>> {
         let cfg = &self.config;
-        let d  = cfg.embedding_dim;
+        let d = cfg.embedding_dim;
         let nh = cfg.num_heads;
         let dh = cfg.head_dim();
         let ng = 4usize;
@@ -338,9 +394,17 @@ impl TiRexModel {
             //   g=2 (offset 2D) → zraw (cell gate)
             //   g=3 (offset 3D) → oraw (output gate)
             simd_gate_update(
-                &sc_raw[..d], &sc_raw[d..2*d], &sc_raw[2*d..3*d], &sc_raw[3*d..],
-                &c, &n, &m,
-                sc_cnew, sc_nnew, sc_hnew, sc_mnew,
+                &sc_raw[..d],
+                &sc_raw[d..2 * d],
+                &sc_raw[2 * d..3 * d],
+                &sc_raw[3 * d..],
+                &c,
+                &n,
+                &m,
+                sc_cnew,
+                sc_nnew,
+                sc_hnew,
+                sc_mnew,
                 is_first,
             );
 
@@ -359,7 +423,11 @@ impl TiRexModel {
                 let start = head * dh;
                 let h_slice = &h_t[start..start + dh];
                 let mean = h_slice.iter().sum::<f32>() / dh as f32;
-                let var = h_slice.iter().map(|&v| (v - mean) * (v - mean)).sum::<f32>() / dh as f32;
+                let var = h_slice
+                    .iter()
+                    .map(|&v| (v - mean) * (v - mean))
+                    .sum::<f32>()
+                    / dh as f32;
                 let inv_std = 1.0 / (var + 1e-5f32).sqrt();
                 let w_slice = &blk.group_norm_w[start..start + dh];
                 for d_i in 0..dh {
@@ -424,7 +492,9 @@ simd_runtime_generate!(
             r = &r[S::Vf32::WIDTH..];
         }
         let mut sum = acc.horizontal_add();
-        for &x in r { sum += x * x; }
+        for &x in r {
+            sum += x * x;
+        }
         sum
     }
 );
@@ -441,7 +511,9 @@ simd_runtime_generate!(
             r = &mut r[S::Vf32::WIDTH..];
             wv = &wv[S::Vf32::WIDTH..];
         }
-        for i in 0..r.len() { r[i] *= scale * wv[i]; }
+        for i in 0..r.len() {
+            r[i] *= scale * wv[i];
+        }
     }
 );
 
@@ -458,47 +530,63 @@ simd_runtime_generate!(
             bb = &bb[S::Vf32::WIDTH..];
         }
         let mut sum = acc.horizontal_add();
-        for (&x, &y) in aa.iter().zip(bb.iter()) { sum += x * y; }
+        for (&x, &y) in aa.iter().zip(bb.iter()) {
+            sum += x * y;
+        }
         sum
     }
 );
 
 simd_runtime_generate!(
     fn simd_gate_update(
-        iraw: &[f32], fraw: &[f32], zraw: &[f32], oraw: &[f32],
-        c: &[f32], n: &[f32], m: &[f32],
-        cnew: &mut [f32], nnew: &mut [f32], hnew: &mut [f32], mnew: &mut [f32],
+        iraw: &[f32],
+        fraw: &[f32],
+        zraw: &[f32],
+        oraw: &[f32],
+        c: &[f32],
+        n: &[f32],
+        m: &[f32],
+        cnew: &mut [f32],
+        nnew: &mut [f32],
+        hnew: &mut [f32],
+        mnew: &mut [f32],
         is_first: bool,
     ) {
         let clamp = S::Vf32::set1(15.0f32);
-        let one   = S::Vf32::set1(1.0f32);
-        let eps   = S::Vf32::set1(1e-8f32);
-        let zero  = S::Vf32::zeroes();
+        let one = S::Vf32::set1(1.0f32);
+        let eps = S::Vf32::set1(1e-8f32);
+        let zero = S::Vf32::zeroes();
 
-        let mut ir = &iraw[..]; let mut fr = &fraw[..];
-        let mut zr = &zraw[..]; let mut or_ = &oraw[..];
-        let mut cv = &c[..];    let mut nv = &n[..];    let mut mv = &m[..];
-        let mut cnw = &mut cnew[..]; let mut nnw = &mut nnew[..];
-        let mut hnw = &mut hnew[..]; let mut mnw = &mut mnew[..];
+        let mut ir = &iraw[..];
+        let mut fr = &fraw[..];
+        let mut zr = &zraw[..];
+        let mut or_ = &oraw[..];
+        let mut cv = &c[..];
+        let mut nv = &n[..];
+        let mut mv = &m[..];
+        let mut cnw = &mut cnew[..];
+        let mut nnw = &mut nnew[..];
+        let mut hnw = &mut hnew[..];
+        let mut mnw = &mut mnew[..];
 
         while ir.len() >= S::Vf32::WIDTH {
-            let iv  = S::Vf32::load_from_slice(ir);
-            let fv  = S::Vf32::load_from_slice(fr).min(clamp);
-            let zv  = S::Vf32::load_from_slice(zr);
-            let ov  = S::Vf32::load_from_slice(or_);
+            let iv = S::Vf32::load_from_slice(ir);
+            let fv = S::Vf32::load_from_slice(fr).min(clamp);
+            let zv = S::Vf32::load_from_slice(zr);
+            let ov = S::Vf32::load_from_slice(or_);
             let cv_ = S::Vf32::load_from_slice(cv);
             let nv_ = S::Vf32::load_from_slice(nv);
             let mv_ = S::Vf32::load_from_slice(mv);
 
             // log_sigmoid(fv): stable two-branch form, select by sign
-            let ls_pos = -(one + (-fv).exp_u35()).ln_u35();     // fv >= 0: -ln(1+exp(-fv))
-            let ls_neg = fv - (one + fv.exp_u35()).ln_u35();     // fv < 0:  fv - ln(1+exp(fv))
+            let ls_pos = -(one + (-fv).exp_u35()).ln_u35(); // fv >= 0: -ln(1+exp(-fv))
+            let ls_neg = fv - (one + fv.exp_u35()).ln_u35(); // fv < 0:  fv - ln(1+exp(fv))
             let log_sig_f = fv.cmp_lt(zero).blendv(ls_pos, ls_neg);
 
             let logfplusm = mv_ + log_sig_f;
             let mnew_v = if is_first { iv } else { iv.max(logfplusm) };
 
-            let ogate = one / (one + (-ov).exp_u35());            // sigmoid(ov)
+            let ogate = one / (one + (-ov).exp_u35()); // sigmoid(ov)
             let igate = (iv - mnew_v).exp_u35().min(one);
             let fgate = (logfplusm - mnew_v).exp_u35().min(one);
             let zgate = zv.tanh_u35();
@@ -506,24 +594,40 @@ simd_runtime_generate!(
             let cnew_v = fgate.mul_add(cv_, igate * zgate);
             let nnew_v = fgate.mul_add(nv_, igate);
 
-            let mask  = nnew_v.abs().cmp_gt(eps);
+            let mask = nnew_v.abs().cmp_gt(eps);
             let hnew_v = mask.blendv(zero, ogate * cnew_v / nnew_v);
 
-            cnew_v.copy_to_slice(cnw); nnew_v.copy_to_slice(nnw);
-            hnew_v.copy_to_slice(hnw); mnew_v.copy_to_slice(mnw);
+            cnew_v.copy_to_slice(cnw);
+            nnew_v.copy_to_slice(nnw);
+            hnew_v.copy_to_slice(hnw);
+            mnew_v.copy_to_slice(mnw);
 
-            ir  = &ir[S::Vf32::WIDTH..];  fr  = &fr[S::Vf32::WIDTH..];
-            zr  = &zr[S::Vf32::WIDTH..];  or_ = &or_[S::Vf32::WIDTH..];
-            cv  = &cv[S::Vf32::WIDTH..];  nv  = &nv[S::Vf32::WIDTH..];
-            mv  = &mv[S::Vf32::WIDTH..];
-            cnw = &mut cnw[S::Vf32::WIDTH..]; nnw = &mut nnw[S::Vf32::WIDTH..];
-            hnw = &mut hnw[S::Vf32::WIDTH..]; mnw = &mut mnw[S::Vf32::WIDTH..];
+            ir = &ir[S::Vf32::WIDTH..];
+            fr = &fr[S::Vf32::WIDTH..];
+            zr = &zr[S::Vf32::WIDTH..];
+            or_ = &or_[S::Vf32::WIDTH..];
+            cv = &cv[S::Vf32::WIDTH..];
+            nv = &nv[S::Vf32::WIDTH..];
+            mv = &mv[S::Vf32::WIDTH..];
+            cnw = &mut cnw[S::Vf32::WIDTH..];
+            nnw = &mut nnw[S::Vf32::WIDTH..];
+            hnw = &mut hnw[S::Vf32::WIDTH..];
+            mnw = &mut mnw[S::Vf32::WIDTH..];
         }
 
         for i in 0..ir.len() {
-            let iv_s = ir[i]; let fv_s = fr[i].min(15.0); let zv_s = zr[i]; let ov_s = or_[i];
-            let c_s = cv[i]; let n_s = nv[i]; let m_s = mv[i];
-            let ls = if fv_s >= 0.0 { -(1.0 + (-fv_s).exp()).ln() } else { fv_s - (1.0 + fv_s.exp()).ln() };
+            let iv_s = ir[i];
+            let fv_s = fr[i].min(15.0);
+            let zv_s = zr[i];
+            let ov_s = or_[i];
+            let c_s = cv[i];
+            let n_s = nv[i];
+            let m_s = mv[i];
+            let ls = if fv_s >= 0.0 {
+                -(1.0 + (-fv_s).exp()).ln()
+            } else {
+                fv_s - (1.0 + fv_s.exp()).ln()
+            };
             let lfpm = m_s + ls;
             let mn = if is_first { iv_s } else { iv_s.max(lfpm) };
             let og = 1.0 / (1.0 + (-ov_s).exp());
@@ -532,7 +636,11 @@ simd_runtime_generate!(
             let zg = zv_s.tanh();
             cnw[i] = fg * c_s + ig * zg;
             nnw[i] = fg * n_s + ig;
-            hnw[i] = if nnw[i].abs() > 1e-8 { og * cnw[i] / nnw[i] } else { 0.0 };
+            hnw[i] = if nnw[i].abs() > 1e-8 {
+                og * cnw[i] / nnw[i]
+            } else {
+                0.0
+            };
             mnw[i] = mn;
         }
     }
@@ -581,16 +689,24 @@ fn rms_norm_inplace(x: &mut [f32], w: &[f32], d: usize, eps: f32) {
 /// Output layout: out[t, g, h, o] at flat index t*ng*d + g*d + h*dh + o.
 /// This matches the x_g layout expected by the sLSTM recurrence, so no interleaving
 /// copy is needed after calling this function.
-fn headwise_linear_batch_ng(x: &[f32], w: &[f32], s: usize, nh: usize, dh: usize, ng: usize, out: &mut [f32]) {
-    let d    = nh * dh;
+fn headwise_linear_batch_ng(
+    x: &[f32],
+    w: &[f32],
+    s: usize,
+    nh: usize,
+    dh: usize,
+    ng: usize,
+    out: &mut [f32],
+) {
+    let d = nh * dh;
     let ngdh = ng * dh;
     for t in 0..s {
         for h in 0..nh {
-            let x_h     = &x[t * d + h * dh..t * d + (h + 1) * dh];
+            let x_h = &x[t * d + h * dh..t * d + (h + 1) * dh];
             let w_h_off = h * ngdh * dh;
             for g in 0..ng {
-                let out_base    = t * ng * d + g * d + h * dh;
-                let w_gate_off  = w_h_off + g * dh * dh;
+                let out_base = t * ng * d + g * d + h * dh;
+                let w_gate_off = w_h_off + g * dh * dh;
                 for o in 0..dh {
                     let w_row = &w[w_gate_off + o * dh..w_gate_off + (o + 1) * dh];
                     out[out_base + o] = simd_dot(x_h, w_row);
@@ -606,14 +722,17 @@ fn headwise_linear_batch_ng(x: &[f32], w: &[f32], s: usize, nh: usize, dh: usize
 /// so the inner dot-product dimension (di) is contiguous, enabling simd_dot.
 /// Output written into `out`: [NG*NH*DH = 2048] in [NG, NH, DH] order.
 fn compute_ry(
-    h: &[f32], kernel_t: &[f32],
-    nh: usize, dh: usize, ng: usize,
+    h: &[f32],
+    kernel_t: &[f32],
+    nh: usize,
+    dh: usize,
+    ng: usize,
     ry_raw: &mut [f32],
     out: &mut [f32],
 ) {
     // ry_raw[NH, NG*DH]: for each head, dot h_head with each row of kernel_t[head]
     for head in 0..nh {
-        let h_h    = &h[head * dh..(head + 1) * dh];
+        let h_h = &h[head * dh..(head + 1) * dh];
         let k_head = &kernel_t[head * ng * dh * dh..];
         for gate_d in 0..ng * dh {
             let k_row = &k_head[gate_d * dh..(gate_d + 1) * dh]; // contiguous — simd_dot applies
@@ -644,7 +763,8 @@ fn residual_block_forward(
     let xt = Tensor::from_slice(x, (s, in_dim), device)?;
 
     // hidden: relu(x @ Wh.T + bh)
-    let h = xt.matmul(&emb.hidden_w.t()?)
+    let h = xt
+        .matmul(&emb.hidden_w.t()?)
         .with_context(|| "in_emb hidden matmul")?;
     // Add bias
     let bh = Tensor::from_slice(&emb.hidden_b, (1, h_dim), device)?;
@@ -652,13 +772,15 @@ fn residual_block_forward(
     let h = h.relu()?;
 
     // output: h @ Wo.T + bo
-    let out = h.matmul(&emb.output_w.t()?)
+    let out = h
+        .matmul(&emb.output_w.t()?)
         .with_context(|| "in_emb output matmul")?;
     let bo = Tensor::from_slice(&emb.output_b, (1, out_dim), device)?;
     let out = out.broadcast_add(&bo)?;
 
     // residual: x @ Wr.T + br
-    let res = xt.matmul(&emb.residual_w.t()?)
+    let res = xt
+        .matmul(&emb.residual_w.t()?)
         .with_context(|| "in_emb residual matmul")?;
     let br = Tensor::from_slice(&emb.residual_b, (1, out_dim), device)?;
     let res = res.broadcast_add(&br)?;
@@ -667,7 +789,14 @@ fn residual_block_forward(
 }
 
 /// FFN: SiLU(gate(x)) * up(x) → down
-fn ffn_forward(x: &[f32], s: usize, in_dim: usize, up_dim: usize, blk: &Block, device: &Device) -> Result<Vec<f32>> {
+fn ffn_forward(
+    x: &[f32],
+    s: usize,
+    in_dim: usize,
+    up_dim: usize,
+    blk: &Block,
+    device: &Device,
+) -> Result<Vec<f32>> {
     let xt = Tensor::from_slice(x, (s, in_dim), device)?;
 
     // gate proj: [S, up_dim]
@@ -701,7 +830,10 @@ impl zsfm_core::Forecaster for TiRexModel {
         _mask: &[Vec<bool>],
         horizon: usize,
     ) -> Result<zsfm_core::QuantileMatrix> {
-        anyhow::ensure!(context.len() == 1, "TiRexModel only supports univariate forecasting (1 variate)");
+        anyhow::ensure!(
+            context.len() == 1,
+            "TiRexModel only supports univariate forecasting (1 variate)"
+        );
         let (quantiles, _median) = TiRexModel::forecast(self, &context[0], horizon)?; // [n_q][horizon]
         Ok(quantiles.into_iter().map(|row| vec![row]).collect())
     }

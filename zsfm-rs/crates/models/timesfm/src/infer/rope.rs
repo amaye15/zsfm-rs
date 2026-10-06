@@ -41,8 +41,16 @@ impl RopeCache {
         let dtype = x.dtype();
 
         // Zero-copy narrow: produces a view into the pre-built Tensor
-        let cos_t = self.cos_t.narrow(0, start_pos, seq)?.unsqueeze(0)?.unsqueeze(2)?;
-        let sin_t = self.sin_t.narrow(0, start_pos, seq)?.unsqueeze(0)?.unsqueeze(2)?;
+        let cos_t = self
+            .cos_t
+            .narrow(0, start_pos, seq)?
+            .unsqueeze(0)?
+            .unsqueeze(2)?;
+        let sin_t = self
+            .sin_t
+            .narrow(0, start_pos, seq)?
+            .unsqueeze(0)?
+            .unsqueeze(2)?;
 
         let x32 = x.to_dtype(DType::F32)?;
         let x1 = x32.narrow(D::Minus1, 0, half)?;
@@ -50,7 +58,7 @@ impl RopeCache {
         let cos1 = cos_t.narrow(D::Minus1, 0, half)?;
         let sin1 = sin_t.narrow(D::Minus1, 0, half)?;
 
-        let first  = (x1.broadcast_mul(&cos1)? - x2.broadcast_mul(&sin1)?)?;
+        let first = (x1.broadcast_mul(&cos1)? - x2.broadcast_mul(&sin1)?)?;
         let second = (x2.broadcast_mul(&cos1)? + x1.broadcast_mul(&sin1)?)?;
 
         Ok(Tensor::cat(&[&first, &second], D::Minus1)?.to_dtype(dtype)?)

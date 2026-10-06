@@ -10,12 +10,14 @@ pub(crate) fn build_client(hf_token: Option<&str>) -> anyhow::Result<reqwest::Cl
     let mut headers = reqwest::header::HeaderMap::new();
     headers.insert(
         reqwest::header::USER_AGENT,
-        "zsfm-hub/0.1".parse().unwrap(),
+        reqwest::header::HeaderValue::from_static("zsfm-hub/0.1"),
     );
     if let Some(token) = hf_token {
         headers.insert(
             reqwest::header::AUTHORIZATION,
-            format!("Bearer {token}").parse().context("invalid HF token")?,
+            format!("Bearer {token}")
+                .parse()
+                .context("invalid HF token")?,
         );
     }
     Ok(reqwest::Client::builder()

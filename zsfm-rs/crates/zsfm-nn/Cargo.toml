@@ -9,6 +9,7 @@ description = "Shared candle tensor primitives (GGUF tensor loading, linear/norm
 [dependencies]
 anyhow.workspace = true
 candle-core.workspace = true
+candle-nn.workspace = true
 
 [lib]
 path = "src/lib.rs"

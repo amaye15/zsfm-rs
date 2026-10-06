@@ -73,17 +73,24 @@ fn build_client(token: &str) -> anyhow::Result<reqwest::Client> {
     let mut headers = reqwest::header::HeaderMap::new();
     headers.insert(
         reqwest::header::AUTHORIZATION,
-        format!("Bearer {token}").parse().context("invalid HF token")?,
+        format!("Bearer {token}")
+            .parse()
+            .context("invalid HF token")?,
     );
     headers.insert(
         reqwest::header::USER_AGENT,
-        "zsfm-hub/0.1".parse().unwrap(),
+        reqwest::header::HeaderValue::from_static("zsfm-hub/0.1"),
     );
-    Ok(reqwest::Client::builder().default_headers(headers).build()?)
+    Ok(reqwest::Client::builder()
+        .default_headers(headers)
+        .build()?)
 }
 
 async fn ensure_repo(client: &reqwest::Client, repo_id: &str) -> anyhow::Result<()> {
-    let name = repo_id.split('/').nth(1).context("repo_id must be owner/name")?;
+    let name = repo_id
+        .split('/')
+        .nth(1)
+        .context("repo_id must be owner/name")?;
     let resp: reqwest::Response = client
         .post(format!("{HF_BASE}/api/repos/create"))
         .json(&serde_json::json!({ "name": name, "type": "model", "private": false }))
@@ -127,7 +134,10 @@ async fn list_repo_files(client: &reqwest::Client, repo_id: &str) -> anyhow::Res
             .and_then(parse_next_link);
 
         #[derive(serde::Deserialize)]
-        struct TreeEntry { r#type: String, path: String }
+        struct TreeEntry {
+            r#type: String,
+            path: String,
+        }
         let entries: Vec<TreeEntry> = resp.json().await.context("parse tree response")?;
         for e in entries {
             if e.r#type == "file" {
@@ -150,12 +160,32 @@ fn parse_next_link(header: &str) -> Option<String> {
         let part = part.trim();
         if part.contains(r#"rel="next""#) {
             if let Some(url_part) = part.split(';').next() {
-                let url = url_part.trim().trim_start_matches('<').trim_end_matches('>');
+                let url = url_part
+                    .trim()
+                    .trim_start_matches('<')
+                    .trim_end_matches('>');
                 return Some(url.to_string());
             }
         }
     }
     None
+}
+
+/// Read at most `PREUPLOAD_SAMPLE` bytes for the HF preupload probe without
+/// loading multi-GB GGUF files into memory.
+fn read_sample(local: &Path) -> anyhow::Result<String> {
+    use std::io::Read;
+    let mut f = std::fs::File::open(local).with_context(|| format!("open {}", local.display()))?;
+    let mut buf = vec![0u8; PREUPLOAD_SAMPLE];
+    let mut n = 0;
+    while n < PREUPLOAD_SAMPLE {
+        let r = f.read(&mut buf[n..])?;
+        if r == 0 {
+            break;
+        }
+        n += r;
+    }
+    Ok(base64::engine::general_purpose::STANDARD.encode(&buf[..n]))
 }
 
 /// Ask HF which files need LFS vs regular inline upload, then prepare both lists.
@@ -169,12 +199,7 @@ async fn classify_files(
         let size = std::fs::metadata(local)
             .with_context(|| format!("stat {}", local.display()))?
             .len();
-        let sample = {
-            let bytes = std::fs::read(local)
-                .with_context(|| format!("read {}", local.display()))?;
-            let n = bytes.len().min(PREUPLOAD_SAMPLE);
-            base64::engine::general_purpose::STANDARD.encode(&bytes[..n])
-        };
+        let sample = read_sample(local)?;
         preupload_entries.push(serde_json::json!({
             "path": remote,
             "size": size,
@@ -205,10 +230,13 @@ async fn classify_files(
         _should_ignore: bool,
     }
     #[derive(serde::Deserialize)]
-    struct PreuploadResp { files: Vec<PreuploadFile> }
+    struct PreuploadResp {
+        files: Vec<PreuploadFile>,
+    }
 
     let preupload: PreuploadResp = resp.json().await.context("parse preupload response")?;
-    let modes: std::collections::HashMap<String, String> = preupload.files
+    let modes: std::collections::HashMap<String, String> = preupload
+        .files
         .into_iter()
         .map(|f| (f.path, f.upload_mode))
         .collect();
@@ -221,12 +249,27 @@ async fn classify_files(
         if mode == "lfs" {
             let size = std::fs::metadata(local)?.len();
             let oid = sha256_file(local)?;
-            lfs.push(LfsFile { local: local.clone(), remote: remote.clone(), size, oid });
+            lfs.push(LfsFile {
+                local: local.clone(),
+                remote: remote.clone(),
+                size,
+                oid,
+            });
         } else {
-            let bytes = std::fs::read(local)
-                .with_context(|| format!("read {}", local.display()))?;
+            let size = std::fs::metadata(local)
+                .with_context(|| format!("stat {}", local.display()))?
+                .len();
+            anyhow::ensure!(
+                size <= 10 << 20,
+                "{remote}: {size} bytes too large for regular upload (max 10 MiB)"
+            );
+            let bytes =
+                std::fs::read(local).with_context(|| format!("read {}", local.display()))?;
             let content_b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
-            regular.push(RegularFile { remote: remote.clone(), content_b64 });
+            regular.push(RegularFile {
+                remote: remote.clone(),
+                content_b64,
+            });
         }
     }
 
@@ -267,7 +310,11 @@ fn walk_dir(dir: &Path, prefix: &str, out: &mut Vec<(PathBuf, String)>) -> anyho
         if SKIP_DIRS.contains(&name.as_str()) {
             continue;
         }
-        let remote = if prefix.is_empty() { name.clone() } else { format!("{prefix}/{name}") };
+        let remote = if prefix.is_empty() {
+            name.clone()
+        } else {
+            format!("{prefix}/{name}")
+        };
         if path.is_file() {
             out.push((path, remote));
         } else if path.is_dir() {
@@ -278,13 +325,14 @@ fn walk_dir(dir: &Path, prefix: &str, out: &mut Vec<(PathBuf, String)>) -> anyho
 }
 
 fn sha256_file(path: &Path) -> anyhow::Result<String> {
-    let mut f =
-        std::fs::File::open(path).with_context(|| format!("open {}", path.display()))?;
+    let mut f = std::fs::File::open(path).with_context(|| format!("open {}", path.display()))?;
     let mut hasher = Sha256::new();
     let mut buf = vec![0u8; 8 * 1024 * 1024];
     loop {
         let n = f.read(&mut buf)?;
-        if n == 0 { break; }
+        if n == 0 {
+            break;
+        }
         hasher.update(&buf[..n]);
     }
     Ok(format!("{:x}", hasher.finalize()))
@@ -323,12 +371,15 @@ async fn upload_lfs(
     }
 
     #[derive(serde::Deserialize)]
-    struct BatchResp { objects: Vec<serde_json::Value> }
+    struct BatchResp {
+        objects: Vec<serde_json::Value>,
+    }
     let batch: BatchResp = resp.json().await.context("parse LFS batch response")?;
 
     for (file, obj) in files.iter().zip(batch.objects.iter()) {
-        let Some(upload_href) =
-            obj.pointer("/actions/upload/href").and_then(|v: &serde_json::Value| v.as_str())
+        let Some(upload_href) = obj
+            .pointer("/actions/upload/href")
+            .and_then(|v: &serde_json::Value| v.as_str())
         else {
             println!("  (already on LFS) {}", file.remote);
             continue;
@@ -338,16 +389,19 @@ async fn upload_lfs(
         let is_multipart = obj.pointer("/actions/upload/header/chunk_size").is_some();
 
         if is_multipart {
-            upload_lfs_object_multipart(file, upload_href, obj).await
+            upload_lfs_object_multipart(file, upload_href, obj)
+                .await
                 .with_context(|| format!("upload (multipart) {}", file.remote))?;
         } else {
-            upload_lfs_object(file, upload_href, obj).await
+            upload_lfs_object(file, upload_href, obj)
+                .await
                 .with_context(|| format!("upload {}", file.remote))?;
         }
 
         // Verify step (optional but recommended by Git LFS spec)
-        if let Some(verify_href) =
-            obj.pointer("/actions/verify/href").and_then(|v: &serde_json::Value| v.as_str())
+        if let Some(verify_href) = obj
+            .pointer("/actions/verify/href")
+            .and_then(|v: &serde_json::Value| v.as_str())
         {
             let verify_headers = obj
                 .pointer("/actions/verify/header")
@@ -384,7 +438,7 @@ async fn upload_lfs_object(
         ProgressStyle::with_template(
             "  {msg} [{bar:40}] {bytes}/{total_bytes} ({bytes_per_sec}, eta {eta})",
         )
-        .unwrap()
+        .expect("valid progress template")
         .progress_chars("=>-"),
     );
     pb.set_message(file.remote.clone());
@@ -406,7 +460,10 @@ async fn upload_lfs_object(
         .put(href)
         .header("Content-Length", file.size.to_string());
 
-    if let Some(extra) = obj.pointer("/actions/upload/header").and_then(|v| v.as_object()) {
+    if let Some(extra) = obj
+        .pointer("/actions/upload/header")
+        .and_then(|v| v.as_object())
+    {
         for (k, v) in extra {
             if let Some(val) = v.as_str() {
                 req = req.header(k.as_str(), val);
@@ -464,7 +521,7 @@ async fn upload_lfs_object_multipart(
         ProgressStyle::with_template(
             "  {msg} [{bar:40}] {bytes}/{total_bytes} ({bytes_per_sec}, eta {eta})",
         )
-        .unwrap()
+        .expect("valid progress template")
         .progress_chars("=>-"),
     );
     pb.set_message(file.remote.clone());
@@ -482,10 +539,14 @@ async fn upload_lfs_object_multipart(
         let mut pos = 0;
         while pos < chunk_size {
             let n = f.read(&mut buf[pos..]).await?;
-            if n == 0 { break; }
+            if n == 0 {
+                break;
+            }
             pos += n;
         }
-        if pos == 0 { break; }
+        if pos == 0 {
+            break;
+        }
         buf.truncate(pos);
         let len = buf.len();
 
@@ -510,7 +571,9 @@ async fn upload_lfs_object_multipart(
                 }
                 Ok(resp) => {
                     let status = resp.status();
-                    let tag = resp.headers().get("etag")
+                    let tag = resp
+                        .headers()
+                        .get("etag")
                         .and_then(|v| v.to_str().ok())
                         .map(|s| s.to_string());
                     if status.is_success() {
@@ -519,11 +582,14 @@ async fn upload_lfs_object_multipart(
                             last_err = None;
                             break;
                         } else {
-                            last_err = Some(anyhow::anyhow!("PUT part {part_num}: no ETag in response"));
+                            last_err =
+                                Some(anyhow::anyhow!("PUT part {part_num}: no ETag in response"));
                         }
                     } else {
                         let body = resp.text().await.unwrap_or_default();
-                        last_err = Some(anyhow::anyhow!("PUT part {part_num}: HTTP {status}: {body}"));
+                        last_err = Some(anyhow::anyhow!(
+                            "PUT part {part_num}: HTTP {status}: {body}"
+                        ));
                     }
                 }
             }

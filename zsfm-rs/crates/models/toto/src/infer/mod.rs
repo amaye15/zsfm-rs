@@ -15,9 +15,9 @@
 mod rope;
 
 use std::collections::HashMap;
-use std::sync::Mutex;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use anyhow::{bail, Context, Result};
 use candle_core::quantized::gguf_file;
@@ -83,42 +83,93 @@ impl InferConfig {
         if self.variate_layer_first {
             idx % self.layer_group_size < self.num_variate_layers_per_group
         } else {
-            idx % self.layer_group_size
-                >= self.layer_group_size - self.num_variate_layers_per_group
+            idx % self.layer_group_size >= self.layer_group_size - self.num_variate_layers_per_group
         }
     }
-    fn q_size(&self) -> usize { self.qk_dim * self.num_heads }
-    fn k_size(&self) -> usize { self.qk_dim * self.num_groups }
-    fn v_size(&self) -> usize { self.v_dim * self.num_groups }
+    fn q_size(&self) -> usize {
+        self.qk_dim * self.num_heads
+    }
+    fn k_size(&self) -> usize {
+        self.qk_dim * self.num_groups
+    }
+    fn v_size(&self) -> usize {
+        self.v_dim * self.num_groups
+    }
 
     // -- builder-style setters — chain from `InferConfig::default()` ---------
 
-    pub fn with_d_model(mut self, v: usize) -> Self { self.d_model = v; self }
-    pub fn with_num_layers(mut self, v: usize) -> Self { self.num_layers = v; self }
-    pub fn with_num_heads(mut self, v: usize) -> Self { self.num_heads = v; self }
-    pub fn with_num_groups(mut self, v: usize) -> Self { self.num_groups = v; self }
-    pub fn with_qk_dim(mut self, v: usize) -> Self { self.qk_dim = v; self }
-    pub fn with_v_dim(mut self, v: usize) -> Self { self.v_dim = v; self }
-    pub fn with_patch_size(mut self, v: usize) -> Self { self.patch_size = v; self }
-    pub fn with_norm_eps(mut self, v: f64) -> Self { self.norm_eps = v; self }
-    pub fn with_layer_group_size(mut self, v: usize) -> Self { self.layer_group_size = v; self }
+    pub fn with_d_model(mut self, v: usize) -> Self {
+        self.d_model = v;
+        self
+    }
+    pub fn with_num_layers(mut self, v: usize) -> Self {
+        self.num_layers = v;
+        self
+    }
+    pub fn with_num_heads(mut self, v: usize) -> Self {
+        self.num_heads = v;
+        self
+    }
+    pub fn with_num_groups(mut self, v: usize) -> Self {
+        self.num_groups = v;
+        self
+    }
+    pub fn with_qk_dim(mut self, v: usize) -> Self {
+        self.qk_dim = v;
+        self
+    }
+    pub fn with_v_dim(mut self, v: usize) -> Self {
+        self.v_dim = v;
+        self
+    }
+    pub fn with_patch_size(mut self, v: usize) -> Self {
+        self.patch_size = v;
+        self
+    }
+    pub fn with_norm_eps(mut self, v: f64) -> Self {
+        self.norm_eps = v;
+        self
+    }
+    pub fn with_layer_group_size(mut self, v: usize) -> Self {
+        self.layer_group_size = v;
+        self
+    }
     pub fn with_num_variate_layers_per_group(mut self, v: usize) -> Self {
         self.num_variate_layers_per_group = v;
         self
     }
-    pub fn with_variate_layer_first(mut self, v: bool) -> Self { self.variate_layer_first = v; self }
-    pub fn with_use_xpos(mut self, v: bool) -> Self { self.use_xpos = v; self }
-    pub fn with_residual_mult(mut self, v: f64) -> Self { self.residual_mult = v; self }
-    pub fn with_residual_attn_ratio(mut self, v: f64) -> Self { self.residual_attn_ratio = v; self }
+    pub fn with_variate_layer_first(mut self, v: bool) -> Self {
+        self.variate_layer_first = v;
+        self
+    }
+    pub fn with_use_xpos(mut self, v: bool) -> Self {
+        self.use_xpos = v;
+        self
+    }
+    pub fn with_residual_mult(mut self, v: f64) -> Self {
+        self.residual_mult = v;
+        self
+    }
+    pub fn with_residual_attn_ratio(mut self, v: f64) -> Self {
+        self.residual_attn_ratio = v;
+        self
+    }
 
     /// Run the forward pass in F64 (double precision) to match PyTorch numerical
     /// accuracy. Uses ~2× memory. Default: F32.
-    pub fn with_compute_f64(mut self, v: bool) -> Self { self.compute_f64 = v; self }
+    pub fn with_compute_f64(mut self, v: bool) -> Self {
+        self.compute_f64 = v;
+        self
+    }
 
     // -- read-only accessors needed outside this crate ------------------------
 
-    pub fn patch_size(&self) -> usize { self.patch_size }
-    pub fn compute_f64(&self) -> bool { self.compute_f64 }
+    pub fn patch_size(&self) -> usize {
+        self.patch_size
+    }
+    pub fn compute_f64(&self) -> bool {
+        self.compute_f64
+    }
 
     /// Overlay every recognised field from a parsed `config.json` onto
     /// `InferConfig::default()`, using the same field names as the upstream
@@ -169,7 +220,10 @@ pub struct TotoModelBuilder {
 
 impl TotoModelBuilder {
     fn new(gguf_path: impl Into<PathBuf>) -> Self {
-        Self { gguf_path: gguf_path.into(), config: InferConfig::default() }
+        Self {
+            gguf_path: gguf_path.into(),
+            config: InferConfig::default(),
+        }
     }
 
     /// Replace the whole config, e.g. one built by hand via
@@ -202,9 +256,12 @@ impl TotoModelBuilder {
 // ---------------------------------------------------------------------------
 
 struct ResidualMlpWeights {
-    l1_w: Tensor, l1_b: Tensor,
-    l2_w: Tensor, l2_b: Tensor,
-    skip_w: Tensor, skip_b: Tensor,
+    l1_w: Tensor,
+    l1_b: Tensor,
+    l2_w: Tensor,
+    l2_b: Tensor,
+    skip_w: Tensor,
+    skip_b: Tensor,
     tau: f64,
     is_output: bool, // true → use LinearReadout scale (1/fan_in) for l2 and skip
 }
@@ -243,7 +300,11 @@ pub struct TotoModel {
 ///
 /// This reproduces `uu.transformer_residual_scaling_rule` + the per-layer buffer assignment
 /// from `SelfAttentionTransformerLayer.__init__` in the Python model.
-fn compute_taus(num_layers: usize, residual_mult: f64, residual_attn_ratio: f64) -> (Vec<f64>, Vec<f64>) {
+fn compute_taus(
+    num_layers: usize,
+    residual_mult: f64,
+    residual_attn_ratio: f64,
+) -> (Vec<f64>, Vec<f64>) {
     let total_depth = 2 * num_layers;
     let alpha_mlp = residual_mult * (2.0 / (1.0 + residual_attn_ratio.powi(2))).sqrt();
     let alpha_attn = residual_attn_ratio * alpha_mlp;
@@ -251,7 +312,11 @@ fn compute_taus(num_layers: usize, residual_mult: f64, residual_attn_ratio: f64)
     let tau = |index: usize| -> f64 {
         let n_attn = (index + 1) / 2;
         let n_mlp = index / 2;
-        let num = if index % 2 == 0 { alpha_attn } else { alpha_mlp };
+        let num = if index % 2 == 0 {
+            alpha_attn
+        } else {
+            alpha_mlp
+        };
         let den = (total_depth as f64 / 2.0
             + n_attn as f64 * alpha_attn.powi(2)
             + n_mlp as f64 * alpha_mlp.powi(2))
@@ -259,7 +324,9 @@ fn compute_taus(num_layers: usize, residual_mult: f64, residual_attn_ratio: f64)
         num / den
     };
 
-    (0..num_layers).map(|i| (tau(2 * i), tau(2 * i + 1))).unzip()
+    (0..num_layers)
+        .map(|i| (tau(2 * i), tau(2 * i + 1)))
+        .unzip()
 }
 
 impl TotoModel {
@@ -270,18 +337,25 @@ impl TotoModel {
 
     pub fn load(gguf_path: &Path, config: InferConfig) -> Result<Self> {
         let device = Device::Cpu;
-        let dtype = if config.compute_f64 { DType::F64 } else { DType::F32 };
+        let dtype = if config.compute_f64 {
+            DType::F64
+        } else {
+            DType::F32
+        };
         let file = std::fs::File::open(gguf_path)
             .with_context(|| format!("open {}", gguf_path.display()))?;
         let mut reader = BufReader::with_capacity(zsfm_gguf::READ_BUF_CAPACITY, file);
-        let content = gguf_file::Content::read(&mut reader)
-            .context("parse GGUF header")?;
+        let content = gguf_file::Content::read(&mut reader).context("parse GGUF header")?;
 
         macro_rules! ld {
-            ($name:expr) => { load_tensor(&content, &mut reader, $name, &device, dtype) };
+            ($name:expr) => {
+                load_tensor(&content, &mut reader, $name, &device, dtype)
+            };
         }
         macro_rules! tld {
-            ($name:expr) => { try_load_tensor(&content, &mut reader, $name, &device, dtype) };
+            ($name:expr) => {
+                try_load_tensor(&content, &mut reader, $name, &device, dtype)
+            };
         }
 
         // --- patch_proj ---
@@ -312,9 +386,9 @@ impl TotoModel {
                 attn_qkv_b: tld!(&format!("blk.{n}.attn_qkv.bias"))?,
                 attn_out_w: ld!(&format!("blk.{n}.attn_output.weight"))?,
                 attn_out_b: tld!(&format!("blk.{n}.attn_output.bias"))?,
-                attn_pds:   tld!(&format!("blk.{n}.attn_pds.weight"))?,
+                attn_pds: tld!(&format!("blk.{n}.attn_pds.weight"))?,
                 attn_tau: attn_taus[n],
-                ffn_up_w:   ld!(&format!("blk.{n}.ffn_up.weight"))?,
+                ffn_up_w: ld!(&format!("blk.{n}.ffn_up.weight"))?,
                 ffn_down_w: {
                     let w = ld!(&format!("blk.{n}.ffn_down.weight"))?;
                     // Q8_0 converter stores this weight transposed so candle's innermost
@@ -342,7 +416,15 @@ impl TotoModel {
         };
 
         let rope = RopeCache::new(config.qk_dim, 8192);
-        Ok(Self { device, config, rope, patch_proj, blocks, output_head, causal_mask_cache: Mutex::new(HashMap::new()) })
+        Ok(Self {
+            device,
+            config,
+            rope,
+            patch_proj,
+            blocks,
+            output_head,
+            causal_mask_cache: Mutex::new(HashMap::new()),
+        })
     }
 
     // -----------------------------------------------------------------------
@@ -414,12 +496,17 @@ impl TotoModel {
             }
         }
 
-        let dtype = if self.config.compute_f64 { DType::F64 } else { DType::F32 };
+        let dtype = if self.config.compute_f64 {
+            DType::F64
+        } else {
+            DType::F32
+        };
         let x = Tensor::from_vec(
             patch_data,
             (1usize, n_var, total_patches, 2 * patch_size),
             &self.device,
-        )?.to_dtype(dtype)?;
+        )?
+        .to_dtype(dtype)?;
 
         // patch_proj (InputResidualMLP)
         let x = self.forward_residual_mlp(&x, &self.patch_proj)?;
@@ -498,7 +585,12 @@ impl TotoModel {
     // Transformer
     // -----------------------------------------------------------------------
 
-    fn forward_transformer(&self, mut x: Tensor, n_var: usize, num_patches: usize) -> Result<Tensor> {
+    fn forward_transformer(
+        &self,
+        mut x: Tensor,
+        n_var: usize,
+        num_patches: usize,
+    ) -> Result<Tensor> {
         for (idx, blk) in self.blocks.iter().enumerate() {
             x = if self.config.is_variate_layer(idx) {
                 self.forward_variate_layer(x, blk, n_var, num_patches)?
@@ -522,7 +614,8 @@ impl TotoModel {
 
         let normed = rms_norm(&state, cfg.norm_eps)?;
         let seq_ids: Vec<u32> = (0..num_patches as u32).collect();
-        let attn_out = self.forward_attention(&normed, blk, &seq_ids, /*is_variate=*/false)?;
+        let attn_out =
+            self.forward_attention(&normed, blk, &seq_ids, /*is_variate=*/ false)?;
         let state = residual_add(&attn_out, &state, blk.attn_tau)?;
 
         let normed = rms_norm(&state, cfg.norm_eps)?;
@@ -542,10 +635,13 @@ impl TotoModel {
     ) -> Result<Tensor> {
         let cfg = &self.config;
         // [1, n_var, num_patches, d] → [num_patches, n_var, d]
-        let state = x.permute([0, 2, 1, 3])?.contiguous()?.reshape((num_patches, n_var, cfg.d_model))?;
+        let state =
+            x.permute([0, 2, 1, 3])?
+                .contiguous()?
+                .reshape((num_patches, n_var, cfg.d_model))?;
 
         let normed = rms_norm(&state, cfg.norm_eps)?;
-        let attn_out = self.forward_attention(&normed, blk, &[], /*is_variate=*/true)?;
+        let attn_out = self.forward_attention(&normed, blk, &[], /*is_variate=*/ true)?;
         let state = residual_add(&attn_out, &state, blk.attn_tau)?;
 
         let normed = rms_norm(&state, cfg.norm_eps)?;
@@ -576,13 +672,26 @@ impl TotoModel {
         // Fused QKV — narrow then contiguous (narrow on last-dim creates non-contiguous views)
         let qkv = uu_linear(state, &blk.attn_qkv_w, blk.attn_qkv_b.as_ref())?;
         let q = qkv.narrow(D::Minus1, 0, cfg.q_size())?.contiguous()?;
-        let k = qkv.narrow(D::Minus1, cfg.q_size(), cfg.k_size())?.contiguous()?;
-        let v = qkv.narrow(D::Minus1, cfg.q_size() + cfg.k_size(), cfg.v_size())?.contiguous()?;
+        let k = qkv
+            .narrow(D::Minus1, cfg.q_size(), cfg.k_size())?
+            .contiguous()?;
+        let v = qkv
+            .narrow(D::Minus1, cfg.q_size() + cfg.k_size(), cfg.v_size())?
+            .contiguous()?;
 
         // [batch, seq, heads, head_dim] → [batch, heads, seq, head_dim]
-        let q = q.reshape((batch, seq, cfg.num_heads, cfg.qk_dim))?.permute([0, 2, 1, 3])?.contiguous()?;
-        let k = k.reshape((batch, seq, cfg.num_groups, cfg.qk_dim))?.permute([0, 2, 1, 3])?.contiguous()?;
-        let v = v.reshape((batch, seq, cfg.num_groups, cfg.v_dim))?.permute([0, 2, 1, 3])?.contiguous()?;
+        let q = q
+            .reshape((batch, seq, cfg.num_heads, cfg.qk_dim))?
+            .permute([0, 2, 1, 3])?
+            .contiguous()?;
+        let k = k
+            .reshape((batch, seq, cfg.num_groups, cfg.qk_dim))?
+            .permute([0, 2, 1, 3])?
+            .contiguous()?;
+        let v = v
+            .reshape((batch, seq, cfg.num_groups, cfg.v_dim))?
+            .permute([0, 2, 1, 3])?
+            .contiguous()?;
 
         // PerDimScale on Q
         let q = match blk.attn_pds.as_ref() {
@@ -613,7 +722,11 @@ impl TotoModel {
         let attn = ops::softmax_last_dim(&scores)?;
         let out = attn.matmul(&v)?;
         // [batch, heads, seq, v_dim] → [batch, seq, heads*v_dim]
-        let out = out.permute([0, 2, 1, 3])?.contiguous()?.reshape((batch, seq, cfg.num_heads * cfg.v_dim))?;
+        let out = out.permute([0, 2, 1, 3])?.contiguous()?.reshape((
+            batch,
+            seq,
+            cfg.num_heads * cfg.v_dim,
+        ))?;
 
         uu_linear(&out, &blk.attn_out_w, blk.attn_out_b.as_ref())
     }
@@ -661,7 +774,11 @@ fn linear_with_scale(x: &Tensor, w: &Tensor, b: Option<&Tensor>, scale: f64) -> 
     let mut out_shape = shape[..shape.len() - 1].to_vec();
     out_shape.push(d_out);
     let out = out_flat.reshape(out_shape)?;
-    let out = if let Some(b) = b { out.broadcast_add(b)? } else { out };
+    let out = if let Some(b) = b {
+        out.broadcast_add(b)?
+    } else {
+        out
+    };
     Ok((out * scale)?)
 }
 
@@ -689,7 +806,10 @@ fn apply_per_dim_scale(q: &Tensor, pds_w: &Tensor) -> Result<Tensor> {
 
 impl TotoModel {
     fn apply_causal_mask(&self, scores: Tensor, seq: usize) -> Result<Tensor> {
-        let mut cache = self.causal_mask_cache.lock().unwrap();
+        let mut cache = self
+            .causal_mask_cache
+            .lock()
+            .map_err(|_| anyhow::anyhow!("cache mutex poisoned"))?;
         if !cache.contains_key(&seq) {
             let mut mask_data = vec![0.0f32; seq * seq];
             for i in 0..seq {
@@ -697,7 +817,11 @@ impl TotoModel {
                     mask_data[i * seq + j] = f32::NEG_INFINITY;
                 }
             }
-            let dtype = if self.config.compute_f64 { DType::F64 } else { DType::F32 };
+            let dtype = if self.config.compute_f64 {
+                DType::F64
+            } else {
+                DType::F32
+            };
             let mask = Tensor::from_vec(mask_data, (seq, seq), &self.device)?.to_dtype(dtype)?;
             cache.insert(seq, mask);
         }

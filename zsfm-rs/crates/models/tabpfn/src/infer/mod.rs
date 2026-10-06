@@ -141,11 +141,21 @@ pub struct TabPfnModel {
 // `zsfm convert` path, names passed through unchanged; no crate-specific tensor_map/convert).
 // ---------------------------------------------------------------------------
 
-fn load_t(content: &gguf_file::Content, reader: &mut (impl Read + Seek), name: &str, device: &Device) -> Result<Tensor> {
+fn load_t(
+    content: &gguf_file::Content,
+    reader: &mut (impl Read + Seek),
+    name: &str,
+    device: &Device,
+) -> Result<Tensor> {
     zsfm_nn::load_tensor(content, reader, name, device, DType::F32)
 }
 
-fn load_ssmax(content: &gguf_file::Content, reader: &mut (impl Read + Seek), prefix: &str, device: &Device) -> Result<SsmaxW> {
+fn load_ssmax(
+    content: &gguf_file::Content,
+    reader: &mut (impl Read + Seek),
+    prefix: &str,
+    device: &Device,
+) -> Result<SsmaxW> {
     let mut t = |s: &str| load_t(content, reader, &format!("{prefix}.{s}"), device);
     Ok(SsmaxW {
         base_fc1_w: t("base_mlp.0.weight")?,
@@ -175,10 +185,21 @@ fn load_qkv(
         Some(p) => Some(load_ssmax(content, reader, p, device)?),
         None => None,
     };
-    Ok(QkvW { q_w, k_w, v_w, out_w, ssmax })
+    Ok(QkvW {
+        q_w,
+        k_w,
+        v_w,
+        out_w,
+        ssmax,
+    })
 }
 
-fn load_mlp(content: &gguf_file::Content, reader: &mut (impl Read + Seek), prefix: &str, device: &Device) -> Result<MlpW> {
+fn load_mlp(
+    content: &gguf_file::Content,
+    reader: &mut (impl Read + Seek),
+    prefix: &str,
+    device: &Device,
+) -> Result<MlpW> {
     Ok(MlpW {
         fc1_w: load_t(content, reader, &format!("{prefix}.0.weight"), device)?,
         fc2_w: load_t(content, reader, &format!("{prefix}.2.weight"), device)?,
@@ -193,12 +214,39 @@ fn load_cross_attn_block(
     has_ssmax: bool,
 ) -> Result<CrossAttnBlockW> {
     let ssmax_prefix = format!("{prefix}.attn.softmax_scaling_layer");
-    let attn = load_qkv(content, reader, &format!("{prefix}.attn"), device, has_ssmax.then_some(ssmax_prefix.as_str()))?;
+    let attn = load_qkv(
+        content,
+        reader,
+        &format!("{prefix}.attn"),
+        device,
+        has_ssmax.then_some(ssmax_prefix.as_str()),
+    )?;
     let mlp = load_mlp(content, reader, &format!("{prefix}.mlp"), device)?;
-    let ln_q_w = load_t(content, reader, &format!("{prefix}.layernorm_q.weight"), device)?;
-    let ln_kv_w = load_t(content, reader, &format!("{prefix}.layernorm_kv.weight"), device)?;
-    let ln2_w = load_t(content, reader, &format!("{prefix}.layernorm2.weight"), device)?;
-    Ok(CrossAttnBlockW { attn, mlp, ln_q_w, ln_kv_w, ln2_w })
+    let ln_q_w = load_t(
+        content,
+        reader,
+        &format!("{prefix}.layernorm_q.weight"),
+        device,
+    )?;
+    let ln_kv_w = load_t(
+        content,
+        reader,
+        &format!("{prefix}.layernorm_kv.weight"),
+        device,
+    )?;
+    let ln2_w = load_t(
+        content,
+        reader,
+        &format!("{prefix}.layernorm2.weight"),
+        device,
+    )?;
+    Ok(CrossAttnBlockW {
+        attn,
+        mlp,
+        ln_q_w,
+        ln_kv_w,
+        ln2_w,
+    })
 }
 
 fn load_transformer_block(
@@ -207,11 +255,32 @@ fn load_transformer_block(
     prefix: &str,
     device: &Device,
 ) -> Result<TransformerBlockW> {
-    let attn = load_qkv(content, reader, &format!("{prefix}.attention"), device, None)?;
+    let attn = load_qkv(
+        content,
+        reader,
+        &format!("{prefix}.attention"),
+        device,
+        None,
+    )?;
     let mlp = load_mlp(content, reader, &format!("{prefix}.mlp"), device)?;
-    let ln_w = load_t(content, reader, &format!("{prefix}.layernorm.weight"), device)?;
-    let ln_mlp_w = load_t(content, reader, &format!("{prefix}.layernorm_mlp.weight"), device)?;
-    Ok(TransformerBlockW { attn, mlp, ln_w, ln_mlp_w })
+    let ln_w = load_t(
+        content,
+        reader,
+        &format!("{prefix}.layernorm.weight"),
+        device,
+    )?;
+    let ln_mlp_w = load_t(
+        content,
+        reader,
+        &format!("{prefix}.layernorm_mlp.weight"),
+        device,
+    )?;
+    Ok(TransformerBlockW {
+        attn,
+        mlp,
+        ln_w,
+        ln_mlp_w,
+    })
 }
 
 fn load_icl_block(
@@ -221,32 +290,85 @@ fn load_icl_block(
     device: &Device,
 ) -> Result<IclBlockW> {
     let ssmax_prefix = format!("{prefix}.icl_attention.softmax_scaling_layer");
-    let attn = load_qkv(content, reader, &format!("{prefix}.icl_attention"), device, Some(&ssmax_prefix))?;
+    let attn = load_qkv(
+        content,
+        reader,
+        &format!("{prefix}.icl_attention"),
+        device,
+        Some(&ssmax_prefix),
+    )?;
     let mlp = load_mlp(content, reader, &format!("{prefix}.mlp"), device)?;
-    let ln_w = load_t(content, reader, &format!("{prefix}.layernorm.weight"), device)?;
-    let ln_mlp_w = load_t(content, reader, &format!("{prefix}.layernorm_mlp.weight"), device)?;
-    Ok(IclBlockW { attn, mlp, ln_w, ln_mlp_w })
+    let ln_w = load_t(
+        content,
+        reader,
+        &format!("{prefix}.layernorm.weight"),
+        device,
+    )?;
+    let ln_mlp_w = load_t(
+        content,
+        reader,
+        &format!("{prefix}.layernorm_mlp.weight"),
+        device,
+    )?;
+    Ok(IclBlockW {
+        attn,
+        mlp,
+        ln_w,
+        ln_mlp_w,
+    })
 }
 
 impl TabPfnModel {
     pub fn load(gguf_path: &Path, config: TabPfnConfig) -> Result<Self> {
         let device = Device::Cpu;
-        let file = std::fs::File::open(gguf_path).with_context(|| format!("open {}", gguf_path.display()))?;
+        let file = std::fs::File::open(gguf_path)
+            .with_context(|| format!("open {}", gguf_path.display()))?;
         let mut reader = BufReader::with_capacity(zsfm_gguf::READ_BUF_CAPACITY, file);
         let content = gguf_file::Content::read(&mut reader).context("parse GGUF header")?;
 
         let x_embed_w = load_t(&content, &mut reader, "x_embed.weight", &device)?;
         let x_embed_b = load_t(&content, &mut reader, "x_embed.bias", &device)?;
-        let col_y_encoder_w = load_t(&content, &mut reader, "col_y_encoder.embedding.weight", &device)?;
-        let icl_y_encoder_w = load_t(&content, &mut reader, "icl_y_encoder.embedding.weight", &device)?;
+        let col_y_encoder_w = load_t(
+            &content,
+            &mut reader,
+            "col_y_encoder.embedding.weight",
+            &device,
+        )?;
+        let icl_y_encoder_w = load_t(
+            &content,
+            &mut reader,
+            "icl_y_encoder.embedding.weight",
+            &device,
+        )?;
 
         let mut dist_embed = Vec::with_capacity(config.dist_embed_num_blocks);
         for n in 0..config.dist_embed_num_blocks {
             let p = format!("feature_distribution_embedder.layers.{n}");
-            let ind_vectors = load_t(&content, &mut reader, &format!("{p}.inducing_vectors"), &device)?;
-            let block1 = load_cross_attn_block(&content, &mut reader, &format!("{p}.cross_attn_block1"), &device, true)?;
-            let block2 = load_cross_attn_block(&content, &mut reader, &format!("{p}.cross_attn_block2"), &device, false)?;
-            dist_embed.push(IsabW { ind_vectors, block1, block2 });
+            let ind_vectors = load_t(
+                &content,
+                &mut reader,
+                &format!("{p}.inducing_vectors"),
+                &device,
+            )?;
+            let block1 = load_cross_attn_block(
+                &content,
+                &mut reader,
+                &format!("{p}.cross_attn_block1"),
+                &device,
+                true,
+            )?;
+            let block2 = load_cross_attn_block(
+                &content,
+                &mut reader,
+                &format!("{p}.cross_attn_block2"),
+                &device,
+                false,
+            )?;
+            dist_embed.push(IsabW {
+                ind_vectors,
+                block1,
+                block2,
+            });
         }
 
         let mut col_agg_blocks = Vec::with_capacity(config.feat_agg_num_blocks);
@@ -254,9 +376,24 @@ impl TabPfnModel {
             let p = format!("column_aggregator.blocks.{n}");
             col_agg_blocks.push(load_transformer_block(&content, &mut reader, &p, &device)?);
         }
-        let col_agg_cls_tokens = load_t(&content, &mut reader, "column_aggregator.cls_tokens", &device)?;
-        let col_agg_out_ln_w = load_t(&content, &mut reader, "column_aggregator.out_ln.weight", &device)?;
-        let rope_freqs_t = load_t(&content, &mut reader, "column_aggregator.rope.freqs", &device)?;
+        let col_agg_cls_tokens = load_t(
+            &content,
+            &mut reader,
+            "column_aggregator.cls_tokens",
+            &device,
+        )?;
+        let col_agg_out_ln_w = load_t(
+            &content,
+            &mut reader,
+            "column_aggregator.out_ln.weight",
+            &device,
+        )?;
+        let rope_freqs_t = load_t(
+            &content,
+            &mut reader,
+            "column_aggregator.rope.freqs",
+            &device,
+        )?;
         let col_agg_rope_freqs: Vec<f32> = rope_freqs_t.flatten_all()?.to_vec1()?;
 
         let mut icl_blocks = Vec::with_capacity(config.nlayers);
@@ -269,12 +406,37 @@ impl TabPfnModel {
 
         let decoder_ssmax_prefix = "many_class_decoder.softmax_scaling_layer";
         let many_class_decoder = ManyClassDecoderW {
-            q_w: load_t(&content, &mut reader, "many_class_decoder.q_projection.weight", &device)?,
-            q_b: load_t(&content, &mut reader, "many_class_decoder.q_projection.bias", &device)?,
-            k_w: load_t(&content, &mut reader, "many_class_decoder.k_projection.weight", &device)?,
-            k_b: load_t(&content, &mut reader, "many_class_decoder.k_projection.bias", &device)?,
+            q_w: load_t(
+                &content,
+                &mut reader,
+                "many_class_decoder.q_projection.weight",
+                &device,
+            )?,
+            q_b: load_t(
+                &content,
+                &mut reader,
+                "many_class_decoder.q_projection.bias",
+                &device,
+            )?,
+            k_w: load_t(
+                &content,
+                &mut reader,
+                "many_class_decoder.k_projection.weight",
+                &device,
+            )?,
+            k_b: load_t(
+                &content,
+                &mut reader,
+                "many_class_decoder.k_projection.bias",
+                &device,
+            )?,
             ssmax: if config.decoder_use_softmax_scaling {
-                Some(load_ssmax(&content, &mut reader, decoder_ssmax_prefix, &device)?)
+                Some(load_ssmax(
+                    &content,
+                    &mut reader,
+                    decoder_ssmax_prefix,
+                    &device,
+                )?)
             } else {
                 None
             },
@@ -319,7 +481,12 @@ impl TabPfnModel {
 
         let processed = preprocess_x(&all_rows, train_size);
         let group_size = self.config.feature_group_size;
-        let grouped = feature_group_with_nan_indicators(&processed, h, group_size, self.config.use_nan_indicators);
+        let grouped = feature_group_with_nan_indicators(
+            &processed,
+            h,
+            group_size,
+            self.config.use_nan_indicators,
+        );
         let cell_dim = grouped[0][0].len();
 
         let mut flat = vec![0f32; h * t * cell_dim];
@@ -336,9 +503,14 @@ impl TabPfnModel {
         let row_out = self.col_agg_forward(&col_out, train_size)?; // (T, icl_dim)
 
         let y_icl_emb = self.embedding_lookup(y_support, &self.icl_y_encoder_w)?; // (train_size, icl_dim)
-        let train_part = row_out.narrow(0, 0, train_size)?.broadcast_add(&y_icl_emb)?;
+        let train_part = row_out
+            .narrow(0, 0, train_size)?
+            .broadcast_add(&y_icl_emb)?;
         let mut r = if train_size < t {
-            Tensor::cat(&[&train_part, &row_out.narrow(0, train_size, t - train_size)?], 0)?
+            Tensor::cat(
+                &[&train_part, &row_out.narrow(0, train_size, t - train_size)?],
+                0,
+            )?
         } else {
             train_part
         };
@@ -350,8 +522,17 @@ impl TabPfnModel {
         let train_emb = r.narrow(0, 0, train_size)?;
         let test_emb = r.narrow(0, train_size, t - train_size)?;
 
-        let highest_target = *y_support.iter().max().context("y_support must be non-empty")?;
-        let logits = self.many_class_decoder_forward(&train_emb, &test_emb, y_support, highest_target, n_classes)?;
+        let highest_target = *y_support
+            .iter()
+            .max()
+            .context("y_support must be non-empty")?;
+        let logits = self.many_class_decoder_forward(
+            &train_emb,
+            &test_emb,
+            y_support,
+            highest_target,
+            n_classes,
+        )?;
 
         let flat_logits: Vec<f32> = logits.flatten_all()?.to_vec1()?;
         let n_query = t - train_size;
@@ -367,18 +548,38 @@ impl TabPfnModel {
 
     fn embedding_lookup(&self, y: &[usize], table: &Tensor) -> Result<Tensor> {
         let dim = table.dim(1)?;
-        let idx = Tensor::from_vec(y.iter().map(|&c| c as u32).collect::<Vec<_>>(), y.len(), &self.device)?;
-        table.index_select(&idx, 0)?.reshape((y.len(), dim)).map_err(anyhow::Error::from)
+        let idx = Tensor::from_vec(
+            y.iter().map(|&c| c as u32).collect::<Vec<_>>(),
+            y.len(),
+            &self.device,
+        )?;
+        table
+            .index_select(&idx, 0)?
+            .reshape((y.len(), dim))
+            .map_err(anyhow::Error::from)
     }
 
     /// `x_grouped`: `[H, T, cell_dim]`. `y_col_emb`: `[train_size, embed_dim]`. Returns `[H, T,
     /// embed_dim]`.
-    fn dist_embed_forward(&self, x_grouped: &Tensor, y_col_emb: &Tensor, train_size: usize) -> Result<Tensor> {
+    fn dist_embed_forward(
+        &self,
+        x_grouped: &Tensor,
+        y_col_emb: &Tensor,
+        train_size: usize,
+    ) -> Result<Tensor> {
         let cell_emb = zsfm_nn::linear_bias(x_grouped, &self.x_embed_w, &self.x_embed_b)?;
         let t = cell_emb.dim(1)?;
-        let train_part = cell_emb.narrow(1, 0, train_size)?.broadcast_add(&y_col_emb.unsqueeze(0)?)?;
+        let train_part = cell_emb
+            .narrow(1, 0, train_size)?
+            .broadcast_add(&y_col_emb.unsqueeze(0)?)?;
         let mut src = if train_size < t {
-            Tensor::cat(&[&train_part, &cell_emb.narrow(1, train_size, t - train_size)?], 1)?
+            Tensor::cat(
+                &[
+                    &train_part,
+                    &cell_emb.narrow(1, train_size, t - train_size)?,
+                ],
+                1,
+            )?
         } else {
             train_part
         };
@@ -389,10 +590,22 @@ impl TabPfnModel {
             let h = src.dim(0)?;
             let num_inds = isab.ind_vectors.dim(0)?;
             let dim = isab.ind_vectors.dim(1)?;
-            let ind = isab.ind_vectors.unsqueeze(0)?.expand((h, num_inds, dim))?.contiguous()?;
+            let ind = isab
+                .ind_vectors
+                .unsqueeze(0)?
+                .expand((h, num_inds, dim))?
+                .contiguous()?;
             let kv_train = src.narrow(1, 0, train_size)?;
-            let hidden = cross_attn_block_forward(&ind, &kv_train, &isab.block1, n_heads, head_dim, train_size)?;
-            src = cross_attn_block_forward(&src, &hidden, &isab.block2, n_heads, head_dim, num_inds)?;
+            let hidden = cross_attn_block_forward(
+                &ind,
+                &kv_train,
+                &isab.block1,
+                n_heads,
+                head_dim,
+                train_size,
+            )?;
+            src =
+                cross_attn_block_forward(&src, &hidden, &isab.block2, n_heads, head_dim, num_inds)?;
         }
         Ok(src)
     }
@@ -407,7 +620,11 @@ impl TabPfnModel {
         let head_dim = dim / n_heads;
 
         let feat = col_embeddings.permute((1, 0, 2))?.contiguous()?; // (T, H, dim)
-        let cls = self.col_agg_cls_tokens.unsqueeze(0)?.expand((t, n_cls, dim))?.contiguous()?;
+        let cls = self
+            .col_agg_cls_tokens
+            .unsqueeze(0)?
+            .expand((t, n_cls, dim))?
+            .contiguous()?;
         let mut seq = Tensor::cat(&[&cls, &feat], 1)?; // (T, H+C, dim)
 
         let max_len = h + n_cls;
@@ -417,7 +634,14 @@ impl TabPfnModel {
         for (i, blk) in self.col_agg_blocks.iter().enumerate() {
             if i + 1 == n_blocks {
                 let cls_q = seq.narrow(1, 0, n_cls)?;
-                seq = transformer_block_forward_cross(&cls_q, &seq, blk, n_heads, head_dim, Some((&cos, &sin)))?;
+                seq = transformer_block_forward_cross(
+                    &cls_q,
+                    &seq,
+                    blk,
+                    n_heads,
+                    head_dim,
+                    Some((&cos, &sin)),
+                )?;
             } else {
                 seq = transformer_block_forward(&seq, blk, n_heads, head_dim, Some((&cos, &sin)))?;
             }
@@ -439,8 +663,10 @@ impl TabPfnModel {
         let normed = zsfm_nn::rms_norm(x, Some(&blk.ln_w), RMS_EPS)?;
         let q = zsfm_nn::linear_nobias(&normed, &blk.attn.q_w)?.reshape((t, n_heads, head_dim))?;
         let x_train = normed.narrow(0, 0, train_size)?;
-        let k = zsfm_nn::linear_nobias(&x_train, &blk.attn.k_w)?.reshape((train_size, n_heads, head_dim))?;
-        let v = zsfm_nn::linear_nobias(&x_train, &blk.attn.v_w)?.reshape((train_size, n_heads, head_dim))?;
+        let k = zsfm_nn::linear_nobias(&x_train, &blk.attn.k_w)?
+            .reshape((train_size, n_heads, head_dim))?;
+        let v = zsfm_nn::linear_nobias(&x_train, &blk.attn.v_w)?
+            .reshape((train_size, n_heads, head_dim))?;
 
         // (seq, heads, hd) -> (heads, seq, hd)
         let q = q.permute((1, 0, 2))?.contiguous()?;
@@ -451,20 +677,46 @@ impl TabPfnModel {
             Some(kv_heads_test) if train_size < t => {
                 let q_train = q.narrow(1, 0, train_size)?;
                 let q_test = q.narrow(1, train_size, t - train_size)?;
-                let out_train = sdpa_with_ssmax(&q_train, &k, &v, blk.attn.ssmax.as_ref(), train_size, n_heads, head_dim)?;
+                let out_train = sdpa_with_ssmax(
+                    &q_train,
+                    &k,
+                    &v,
+                    blk.attn.ssmax.as_ref(),
+                    train_size,
+                    n_heads,
+                    head_dim,
+                )?;
 
                 let k_test = k.narrow(0, 0, kv_heads_test)?;
                 let v_test = v.narrow(0, 0, kv_heads_test)?;
                 let k_test = repeat_heads(&k_test, n_heads / kv_heads_test)?;
                 let v_test = repeat_heads(&v_test, n_heads / kv_heads_test)?;
-                let out_test =
-                    sdpa_with_ssmax(&q_test, &k_test, &v_test, blk.attn.ssmax.as_ref(), train_size, n_heads, head_dim)?;
+                let out_test = sdpa_with_ssmax(
+                    &q_test,
+                    &k_test,
+                    &v_test,
+                    blk.attn.ssmax.as_ref(),
+                    train_size,
+                    n_heads,
+                    head_dim,
+                )?;
                 Tensor::cat(&[&out_train, &out_test], 1)? // (heads, T, hd)
             }
-            _ => sdpa_with_ssmax(&q, &k, &v, blk.attn.ssmax.as_ref(), train_size, n_heads, head_dim)?,
+            _ => sdpa_with_ssmax(
+                &q,
+                &k,
+                &v,
+                blk.attn.ssmax.as_ref(),
+                train_size,
+                n_heads,
+                head_dim,
+            )?,
         };
 
-        let attn_out = attn_out.permute((1, 0, 2))?.contiguous()?.reshape((t, icl_dim))?;
+        let attn_out = attn_out
+            .permute((1, 0, 2))?
+            .contiguous()?
+            .reshape((t, icl_dim))?;
         let attn_out = zsfm_nn::linear_nobias(&attn_out, &blk.attn.out_w)?;
         let x = (x + attn_out)?;
 
@@ -488,8 +740,10 @@ impl TabPfnModel {
         let n = train_emb.dim(0)?;
         let m = test_emb.dim(0)?;
 
-        let q = zsfm_nn::linear_bias(test_emb, &dec.q_w, &dec.q_b)?.reshape((m, n_heads, head_dim))?;
-        let k = zsfm_nn::linear_bias(train_emb, &dec.k_w, &dec.k_b)?.reshape((n, n_heads, head_dim))?;
+        let q =
+            zsfm_nn::linear_bias(test_emb, &dec.q_w, &dec.q_b)?.reshape((m, n_heads, head_dim))?;
+        let k =
+            zsfm_nn::linear_bias(train_emb, &dec.k_w, &dec.k_b)?.reshape((n, n_heads, head_dim))?;
         let q = q.permute((1, 0, 2))?.contiguous()?; // (heads, M, hd)
         let k = k.permute((1, 0, 2))?.contiguous()?; // (heads, N, hd)
 
@@ -500,7 +754,10 @@ impl TabPfnModel {
         }
         // V is shared identically across all heads (no v_projection in ManyClassDecoder).
         let v_row = Tensor::from_vec(one_hot, (n, one_hot_width), &self.device)?;
-        let v = v_row.unsqueeze(0)?.expand((n_heads, n, one_hot_width))?.contiguous()?;
+        let v = v_row
+            .unsqueeze(0)?
+            .expand((n_heads, n, one_hot_width))?
+            .contiguous()?;
 
         let num_chunks = one_hot_width.div_ceil(head_dim);
         let padded_width = num_chunks * head_dim;
@@ -564,12 +821,21 @@ fn repeat_heads(x: &Tensor, repeat: usize) -> Result<Tensor> {
         return Ok(x.clone());
     }
     let (h, s, d) = x.dims3()?;
-    x.unsqueeze(1)?.expand((h, repeat, s, d))?.reshape((h * repeat, s, d)).map_err(anyhow::Error::from)
+    x.unsqueeze(1)?
+        .expand((h, repeat, s, d))?
+        .reshape((h * repeat, s, d))
+        .map_err(anyhow::Error::from)
 }
 
 /// Query-aware elementwise softmax scaling (`SoftmaxScalingMLP`): `q * base_mlp(log n) * (1 +
 /// tanh(query_mlp(q)))`. `q`: `[heads, seq, hd]`.
-fn apply_ssmax(q: &Tensor, ssmax: &SsmaxW, n: usize, n_heads: usize, head_dim: usize) -> Result<Tensor> {
+fn apply_ssmax(
+    q: &Tensor,
+    ssmax: &SsmaxW,
+    n: usize,
+    n_heads: usize,
+    head_dim: usize,
+) -> Result<Tensor> {
     let device = q.device();
     let logn = (n.max(1) as f32).ln();
     let logn_t = Tensor::from_vec(vec![logn], (1, 1), device)?;
@@ -584,7 +850,9 @@ fn apply_ssmax(q: &Tensor, ssmax: &SsmaxW, n: usize, n_heads: usize, head_dim: u
     let seq = q.dim(1)?;
     let batch = batch_heads / n_heads;
     let base = if batch > 1 {
-        base.unsqueeze(0)?.expand((batch, n_heads, 1, head_dim))?.reshape((batch_heads, 1, head_dim))?
+        base.unsqueeze(0)?
+            .expand((batch, n_heads, 1, head_dim))?
+            .reshape((batch_heads, 1, head_dim))?
     } else {
         base
     };
@@ -616,7 +884,9 @@ fn cross_attn_block_forward(
 ) -> Result<Tensor> {
     let q_normed = zsfm_nn::rms_norm(query, Some(&blk.ln_q_w), RMS_EPS)?;
     let kv_normed = zsfm_nn::rms_norm(context, Some(&blk.ln_kv_w), RMS_EPS)?;
-    let attn_out = batched_qkv_attention(&q_normed, &kv_normed, &blk.attn, n_heads, head_dim, ssmax_n, None)?;
+    let attn_out = batched_qkv_attention(
+        &q_normed, &kv_normed, &blk.attn, n_heads, head_dim, ssmax_n, None,
+    )?;
     let x = (query + attn_out)?;
     let ff_in = zsfm_nn::rms_norm(&x, Some(&blk.ln2_w), RMS_EPS)?;
     let ff = mlp_forward(&ff_in, &blk.mlp)?;
@@ -653,7 +923,15 @@ fn transformer_block_forward_cross(
 ) -> Result<Tensor> {
     let q_normed = zsfm_nn::rms_norm(query, Some(&blk.ln_w), RMS_EPS)?;
     let kv_normed = zsfm_nn::rms_norm(context, Some(&blk.ln_w), RMS_EPS)?;
-    let attn_out = batched_qkv_attention(&q_normed, &kv_normed, &blk.attn, n_heads, head_dim, 0, rope_cos_sin)?;
+    let attn_out = batched_qkv_attention(
+        &q_normed,
+        &kv_normed,
+        &blk.attn,
+        n_heads,
+        head_dim,
+        0,
+        rope_cos_sin,
+    )?;
     let x = (query + attn_out)?;
     let ff_in = zsfm_nn::rms_norm(&x, Some(&blk.ln_mlp_w), RMS_EPS)?;
     let ff = mlp_forward(&ff_in, &blk.mlp)?;
@@ -680,26 +958,40 @@ fn batched_qkv_attention(
     let kv_len = kv_in.dim(1)?;
 
     let q = zsfm_nn::linear_nobias(q_in, &attn.q_w)?.reshape((batch, q_len, n_heads, head_dim))?;
-    let k = zsfm_nn::linear_nobias(kv_in, &attn.k_w)?.reshape((batch, kv_len, n_heads, head_dim))?;
-    let v = zsfm_nn::linear_nobias(kv_in, &attn.v_w)?.reshape((batch, kv_len, n_heads, head_dim))?;
+    let k =
+        zsfm_nn::linear_nobias(kv_in, &attn.k_w)?.reshape((batch, kv_len, n_heads, head_dim))?;
+    let v =
+        zsfm_nn::linear_nobias(kv_in, &attn.v_w)?.reshape((batch, kv_len, n_heads, head_dim))?;
 
-    let q = q.permute((0, 2, 1, 3))?.contiguous()?.reshape((batch * n_heads, q_len, head_dim))?;
-    let k = k.permute((0, 2, 1, 3))?.contiguous()?.reshape((batch * n_heads, kv_len, head_dim))?;
-    let v = v.permute((0, 2, 1, 3))?.contiguous()?.reshape((batch * n_heads, kv_len, head_dim))?;
+    let q = q
+        .permute((0, 2, 1, 3))?
+        .contiguous()?
+        .reshape((batch * n_heads, q_len, head_dim))?;
+    let k = k
+        .permute((0, 2, 1, 3))?
+        .contiguous()?
+        .reshape((batch * n_heads, kv_len, head_dim))?;
+    let v = v
+        .permute((0, 2, 1, 3))?
+        .contiguous()?
+        .reshape((batch * n_heads, kv_len, head_dim))?;
 
     let (q, k) = if let Some((cos, sin)) = rope_cos_sin {
-        (apply_rope(&q, cos, sin, batch, n_heads)?, apply_rope(&k, cos, sin, batch, n_heads)?)
+        (
+            apply_rope(&q, cos, sin, batch, n_heads)?,
+            apply_rope(&k, cos, sin, batch, n_heads)?,
+        )
     } else {
         (q, k)
     };
 
     let n = if ssmax_n > 0 { ssmax_n } else { kv_len };
     let out = sdpa_with_ssmax(&q, &k, &v, attn.ssmax.as_ref(), n, n_heads, head_dim)?;
-    let out = out.reshape((batch, n_heads, q_len, head_dim))?.permute((0, 2, 1, 3))?.contiguous()?.reshape((
-        batch,
-        q_len,
-        dim,
-    ))?;
+    let out = out
+        .reshape((batch, n_heads, q_len, head_dim))?
+        .permute((0, 2, 1, 3))?
+        .contiguous()?
+        .reshape((batch, q_len, dim))?;
     zsfm_nn::linear_nobias(&out, &attn.out_w).map_err(anyhow::Error::from)
 }
 
@@ -719,24 +1011,45 @@ fn batched_qkv_self_attention(
     let k = zsfm_nn::linear_nobias(x, &attn.k_w)?.reshape((batch, seq, n_heads, head_dim))?;
     let v = zsfm_nn::linear_nobias(x, &attn.v_w)?.reshape((batch, seq, n_heads, head_dim))?;
 
-    let q = q.permute((0, 2, 1, 3))?.contiguous()?.reshape((batch * n_heads, seq, head_dim))?;
-    let k = k.permute((0, 2, 1, 3))?.contiguous()?.reshape((batch * n_heads, seq, head_dim))?;
-    let v = v.permute((0, 2, 1, 3))?.contiguous()?.reshape((batch * n_heads, seq, head_dim))?;
+    let q = q
+        .permute((0, 2, 1, 3))?
+        .contiguous()?
+        .reshape((batch * n_heads, seq, head_dim))?;
+    let k = k
+        .permute((0, 2, 1, 3))?
+        .contiguous()?
+        .reshape((batch * n_heads, seq, head_dim))?;
+    let v = v
+        .permute((0, 2, 1, 3))?
+        .contiguous()?
+        .reshape((batch * n_heads, seq, head_dim))?;
 
     let (q, k) = if let Some((cos, sin)) = rope_cos_sin {
-        (apply_rope(&q, cos, sin, batch, n_heads)?, apply_rope(&k, cos, sin, batch, n_heads)?)
+        (
+            apply_rope(&q, cos, sin, batch, n_heads)?,
+            apply_rope(&k, cos, sin, batch, n_heads)?,
+        )
     } else {
         (q, k)
     };
 
     let out = sdpa_with_ssmax(&q, &k, &v, attn.ssmax.as_ref(), seq, n_heads, head_dim)?;
-    let out =
-        out.reshape((batch, n_heads, seq, head_dim))?.permute((0, 2, 1, 3))?.contiguous()?.reshape((batch, seq, dim))?;
+    let out = out
+        .reshape((batch, n_heads, seq, head_dim))?
+        .permute((0, 2, 1, 3))?
+        .contiguous()?
+        .reshape((batch, seq, dim))?;
     zsfm_nn::linear_nobias(&out, &attn.out_w).map_err(anyhow::Error::from)
 }
 
 /// Non-interleaved RoPE. `x`: `[batch*heads, seq, head_dim]`. `cos`/`sin`: `[max_len, head_dim]`.
-fn apply_rope(x: &Tensor, cos: &Tensor, sin: &Tensor, _batch: usize, _n_heads: usize) -> Result<Tensor> {
+fn apply_rope(
+    x: &Tensor,
+    cos: &Tensor,
+    sin: &Tensor,
+    _batch: usize,
+    _n_heads: usize,
+) -> Result<Tensor> {
     let seq = x.dim(1)?;
     let head_dim = x.dim(2)?;
     let half = head_dim / 2;
@@ -768,10 +1081,7 @@ fn rope_table(freqs: &[f32], max_len: usize, device: &Device) -> Result<(Tensor,
 }
 
 fn softmax(logits: &[f32]) -> Vec<f32> {
-    let max = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-    let exps: Vec<f32> = logits.iter().map(|&v| (v - max).exp()).collect();
-    let sum: f32 = exps.iter().sum();
-    exps.into_iter().map(|v| v / sum).collect()
+    zsfm_nn::softmax_host(logits)
 }
 
 // ---------------------------------------------------------------------------
@@ -788,15 +1098,30 @@ fn preprocess_x(rows: &[Vec<f32>], train_size: usize) -> Vec<Vec<f32>> {
     let mut std = vec![0f32; n_feat];
     for f in 0..n_feat {
         let m: f32 = rows[..train_size].iter().map(|r| r[f]).sum::<f32>() / train_size as f32;
-        let denom = if train_size > 1 { (train_size - 1) as f32 } else { 1.0 };
-        let var: f32 = rows[..train_size].iter().map(|r| (r[f] - m).powi(2)).sum::<f32>() / denom;
+        let denom = if train_size > 1 {
+            (train_size - 1) as f32
+        } else {
+            1.0
+        };
+        let var: f32 = rows[..train_size]
+            .iter()
+            .map(|r| (r[f] - m).powi(2))
+            .sum::<f32>()
+            / denom;
         mean[f] = m;
-        std[f] = if var == 0.0 || train_size <= 1 { 1.0 } else { var.sqrt() };
+        std[f] = if var == 0.0 || train_size <= 1 {
+            1.0
+        } else {
+            var.sqrt()
+        };
     }
     let eps = f32::EPSILON;
     rows.iter()
         .map(|row| {
-            row.iter().enumerate().map(|(f, &v)| ((v - mean[f]) / (std[f] + eps)).clamp(-100.0, 100.0)).collect()
+            row.iter()
+                .enumerate()
+                .map(|(f, &v)| ((v - mean[f]) / (std[f] + eps)).clamp(-100.0, 100.0))
+                .collect()
         })
         .collect()
 }
@@ -805,12 +1130,18 @@ fn preprocess_x(rows: &[Vec<f32>], train_size: usize) -> Vec<Vec<f32>> {
 /// `g`'s values are input features at offsets `2^0, 2^1, .., 2^(size-1)` past `g`, mod `H`),
 /// with NaN/Inf indicator features (always `0.0` in this no-NaN-support port) concatenated after
 /// the real grouped values, matching `x_grouped = cat([x_grouped, ind_grouped], dim=-1)`.
-fn feature_group_with_nan_indicators(rows: &[Vec<f32>], h: usize, size: usize, use_nan_indicators: bool) -> Vec<Vec<Vec<f32>>> {
+fn feature_group_with_nan_indicators(
+    rows: &[Vec<f32>],
+    h: usize,
+    size: usize,
+    use_nan_indicators: bool,
+) -> Vec<Vec<Vec<f32>>> {
     rows.iter()
         .map(|row| {
             (0..h)
                 .map(|g| {
-                    let mut cell: Vec<f32> = (0..size).map(|k| row[(g + (1usize << k)) % h]).collect();
+                    let mut cell: Vec<f32> =
+                        (0..size).map(|k| row[(g + (1usize << k)) % h]).collect();
                     if use_nan_indicators {
                         cell.extend(std::iter::repeat_n(0.0f32, size));
                     }

@@ -40,4 +40,6 @@ impl TotoConfig {
     }
 }
 
-fn default_u32<const N: u32>() -> u32 { N }
+fn default_u32<const N: u32>() -> u32 {
+    N
+}

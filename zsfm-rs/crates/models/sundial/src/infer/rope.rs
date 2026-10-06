@@ -44,8 +44,16 @@ impl RopeCache {
         // Zero-copy narrow: produces a view into the pre-built Tensor
         // cos_t and sin_t already satisfy cos[i] == cos[half+i], so use directly —
         // no need to narrow to half then cat back to full width.
-        let cos_t = self.cos_t.narrow(0, start_pos, seq)?.unsqueeze(0)?.unsqueeze(0)?;
-        let sin_t = self.sin_t.narrow(0, start_pos, seq)?.unsqueeze(0)?.unsqueeze(0)?;
+        let cos_t = self
+            .cos_t
+            .narrow(0, start_pos, seq)?
+            .unsqueeze(0)?
+            .unsqueeze(0)?;
+        let sin_t = self
+            .sin_t
+            .narrow(0, start_pos, seq)?
+            .unsqueeze(0)?
+            .unsqueeze(0)?;
 
         let x32 = x.to_dtype(DType::F32)?;
         let x1 = x32.narrow(D::Minus1, 0, half)?;

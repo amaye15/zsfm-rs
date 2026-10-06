@@ -23,7 +23,9 @@ pub struct TtmConfig {
     pub norm_eps: f64,
 }
 
-fn default_scaling() -> String { "std".into() }
+fn default_scaling() -> String {
+    "std".into()
+}
 
 impl TtmConfig {
     pub fn from_json(s: &str) -> Result<Self> {

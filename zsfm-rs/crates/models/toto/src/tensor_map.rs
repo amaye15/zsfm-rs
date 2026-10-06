@@ -7,28 +7,34 @@ pub fn map_tensor_name(hf_name: &str) -> Option<String> {
     // --- patch projection (two-layer MLP with skip connection) ---
     match hf_name {
         "patch_proj.linear1.weight" => return Some("patch_proj.linear1.weight".into()),
-        "patch_proj.linear1.bias"   => return Some("patch_proj.linear1.bias".into()),
+        "patch_proj.linear1.bias" => return Some("patch_proj.linear1.bias".into()),
         "patch_proj.linear2.weight" => return Some("patch_proj.linear2.weight".into()),
-        "patch_proj.linear2.bias"   => return Some("patch_proj.linear2.bias".into()),
+        "patch_proj.linear2.bias" => return Some("patch_proj.linear2.bias".into()),
         "patch_proj.skip_proj.weight" => return Some("patch_proj.skip_proj.weight".into()),
-        "patch_proj.skip_proj.bias"   => return Some("patch_proj.skip_proj.bias".into()),
+        "patch_proj.skip_proj.bias" => return Some("patch_proj.skip_proj.bias".into()),
         _ => {}
     }
 
     // --- output head projection (two-layer MLP with skip connection) ---
     match hf_name {
-        "output_head.param_projection.proj.linear1.weight" =>
-            return Some("output_head.linear1.weight".into()),
-        "output_head.param_projection.proj.linear1.bias" =>
-            return Some("output_head.linear1.bias".into()),
-        "output_head.param_projection.proj.linear2.weight" =>
-            return Some("output_head.linear2.weight".into()),
-        "output_head.param_projection.proj.linear2.bias" =>
-            return Some("output_head.linear2.bias".into()),
-        "output_head.param_projection.proj.skip_proj.weight" =>
-            return Some("output_head.skip_proj.weight".into()),
-        "output_head.param_projection.proj.skip_proj.bias" =>
-            return Some("output_head.skip_proj.bias".into()),
+        "output_head.param_projection.proj.linear1.weight" => {
+            return Some("output_head.linear1.weight".into())
+        }
+        "output_head.param_projection.proj.linear1.bias" => {
+            return Some("output_head.linear1.bias".into())
+        }
+        "output_head.param_projection.proj.linear2.weight" => {
+            return Some("output_head.linear2.weight".into())
+        }
+        "output_head.param_projection.proj.linear2.bias" => {
+            return Some("output_head.linear2.bias".into())
+        }
+        "output_head.param_projection.proj.skip_proj.weight" => {
+            return Some("output_head.skip_proj.weight".into())
+        }
+        "output_head.param_projection.proj.skip_proj.bias" => {
+            return Some("output_head.skip_proj.bias".into())
+        }
         _ => {}
     }
 
@@ -45,20 +51,20 @@ pub fn map_tensor_name(hf_name: &str) -> Option<String> {
 fn map_block_suffix(suffix: &str) -> Option<&'static str> {
     Some(match suffix {
         // Fused QKV projection
-        "attn.in_proj.weight"  => "attn_qkv.weight",
-        "attn.in_proj.bias"    => "attn_qkv.bias",
+        "attn.in_proj.weight" => "attn_qkv.weight",
+        "attn.in_proj.bias" => "attn_qkv.bias",
         // Output projection
         "attn.out_proj.weight" => "attn_output.weight",
-        "attn.out_proj.bias"   => "attn_output.bias",
+        "attn.out_proj.bias" => "attn_output.bias",
         // Per-dimension scale (Toto-specific learned scaling)
         "attn._pds.per_dim_scale" => "attn_pds.weight",
         // Attention temperature (learned scalar per block)
         "attn_tau" => "attn_tau",
         // Feed-forward
         "ffn.fc1.weight" => "ffn_up.weight",
-        "ffn.fc1.bias"   => "ffn_up.bias",
+        "ffn.fc1.bias" => "ffn_up.bias",
         "ffn.fc2.weight" => "ffn_down.weight",
-        "ffn.fc2.bias"   => "ffn_down.bias",
+        "ffn.fc2.bias" => "ffn_down.bias",
         // MLP temperature (learned scalar per block)
         "mlp_tau" => "mlp_tau",
         _ => return None,

@@ -61,28 +61,33 @@ pub fn convert(
                 }
             };
 
-            let src_dtype = ggml_type_from_st(tensor_view.dtype())
-                .with_context(|| format!("tensor {hf_name}: unsupported dtype {:?}", tensor_view.dtype()))?;
+            let src_dtype = ggml_type_from_st(tensor_view.dtype()).with_context(|| {
+                format!(
+                    "tensor {hf_name}: unsupported dtype {:?}",
+                    tensor_view.dtype()
+                )
+            })?;
 
             let raw_data = tensor_view.data();
             let py_shape = tensor_view.shape();
             let n_elems: usize = py_shape.iter().product();
             let innermost = py_shape.last().copied().unwrap_or(1);
 
-            let (dst_dtype, gguf_shape, tensor_data) =
-                if opts.output_dtype == GGMLType::Q8_0 && (innermost % 32 != 0 || n_elems % 32 != 0) {
-                    fallback_count += 1;
-                    let data = cast_data(raw_data, src_dtype, GGMLType::F32)
-                        .with_context(|| format!("tensor {hf_name}: cast failed"))?;
-                    let gs = py_shape.iter().rev().map(|&d| d as u64).collect();
-                    (GGMLType::F32, gs, data)
-                } else {
-                    let dst = opts.output_dtype;
-                    let data = cast_data(raw_data, src_dtype, dst)
-                        .with_context(|| format!("tensor {hf_name}: cast failed"))?;
-                    let gs = py_shape.iter().rev().map(|&d| d as u64).collect();
-                    (dst, gs, data)
-                };
+            let (dst_dtype, gguf_shape, tensor_data) = if opts.output_dtype == GGMLType::Q8_0
+                && (innermost % 32 != 0 || n_elems % 32 != 0)
+            {
+                fallback_count += 1;
+                let data = cast_data(raw_data, src_dtype, GGMLType::F32)
+                    .with_context(|| format!("tensor {hf_name}: cast failed"))?;
+                let gs = py_shape.iter().rev().map(|&d| d as u64).collect();
+                (GGMLType::F32, gs, data)
+            } else {
+                let dst = opts.output_dtype;
+                let data = cast_data(raw_data, src_dtype, dst)
+                    .with_context(|| format!("tensor {hf_name}: cast failed"))?;
+                let gs = py_shape.iter().rev().map(|&d| d as u64).collect();
+                (dst, gs, data)
+            };
 
             writer.add_tensor(gguf_name, gguf_shape, dst_dtype, tensor_data);
             mapped += 1;
@@ -103,7 +108,8 @@ pub fn convert(
     }
 
     println!("Writing {mapped} tensors to {} …", output_path.display());
-    let out_file = File::create(output_path).with_context(|| format!("create {}", output_path.display()))?;
+    let out_file =
+        File::create(output_path).with_context(|| format!("create {}", output_path.display()))?;
     let mut buf_writer = BufWriter::new(out_file);
     writer.write_to(&mut buf_writer)?;
     println!("Done.");
@@ -111,21 +117,60 @@ pub fn convert(
 }
 
 fn write_metadata(writer: &mut GGUFWriter, config: &TabDptConfig) {
-    writer.add_metadata("general.architecture", GGUFMetaValue::String("tabdpt".into()));
-    writer.add_metadata("general.name", GGUFMetaValue::String("Layer6/TabDPT".into()));
+    writer.add_metadata(
+        "general.architecture",
+        GGUFMetaValue::String("tabdpt".into()),
+    );
+    writer.add_metadata(
+        "general.name",
+        GGUFMetaValue::String("Layer6/TabDPT".into()),
+    );
     writer.add_metadata("tabdpt.dim", GGUFMetaValue::Uint32(config.dim as u32));
-    writer.add_metadata("tabdpt.n_layers", GGUFMetaValue::Uint32(config.n_layers as u32));
-    writer.add_metadata("tabdpt.n_heads", GGUFMetaValue::Uint32(config.n_heads as u32));
+    writer.add_metadata(
+        "tabdpt.n_layers",
+        GGUFMetaValue::Uint32(config.n_layers as u32),
+    );
+    writer.add_metadata(
+        "tabdpt.n_heads",
+        GGUFMetaValue::Uint32(config.n_heads as u32),
+    );
     writer.add_metadata("tabdpt.ff_dim", GGUFMetaValue::Uint32(config.ff_dim as u32));
-    writer.add_metadata("tabdpt.y_encoder_dim", GGUFMetaValue::Uint32(config.y_encoder_dim as u32));
-    writer.add_metadata("tabdpt.max_num_classes", GGUFMetaValue::Uint32(config.max_num_classes as u32));
-    writer.add_metadata("tabdpt.regression_bin_count", GGUFMetaValue::Uint32(config.regression_bin_count as u32));
-    writer.add_metadata("tabdpt.regression_bin_min", GGUFMetaValue::Float32(config.regression_bin_min));
-    writer.add_metadata("tabdpt.regression_bin_max", GGUFMetaValue::Float32(config.regression_bin_max));
-    writer.add_metadata("tabdpt.max_num_features", GGUFMetaValue::Uint32(config.max_num_features as u32));
-    writer.add_metadata("tabdpt.base_len", GGUFMetaValue::Uint32(config.base_len as u32));
-    writer.add_metadata("tabdpt.max_len", GGUFMetaValue::Uint32(config.max_len as u32));
-    writer.add_metadata("tabdpt.n_thinking_rows", GGUFMetaValue::Uint32(config.n_thinking_rows as u32));
+    writer.add_metadata(
+        "tabdpt.y_encoder_dim",
+        GGUFMetaValue::Uint32(config.y_encoder_dim as u32),
+    );
+    writer.add_metadata(
+        "tabdpt.max_num_classes",
+        GGUFMetaValue::Uint32(config.max_num_classes as u32),
+    );
+    writer.add_metadata(
+        "tabdpt.regression_bin_count",
+        GGUFMetaValue::Uint32(config.regression_bin_count as u32),
+    );
+    writer.add_metadata(
+        "tabdpt.regression_bin_min",
+        GGUFMetaValue::Float32(config.regression_bin_min),
+    );
+    writer.add_metadata(
+        "tabdpt.regression_bin_max",
+        GGUFMetaValue::Float32(config.regression_bin_max),
+    );
+    writer.add_metadata(
+        "tabdpt.max_num_features",
+        GGUFMetaValue::Uint32(config.max_num_features as u32),
+    );
+    writer.add_metadata(
+        "tabdpt.base_len",
+        GGUFMetaValue::Uint32(config.base_len as u32),
+    );
+    writer.add_metadata(
+        "tabdpt.max_len",
+        GGUFMetaValue::Uint32(config.max_len as u32),
+    );
+    writer.add_metadata(
+        "tabdpt.n_thinking_rows",
+        GGUFMetaValue::Uint32(config.n_thinking_rows as u32),
+    );
 }
 
 fn ggml_type_from_st(dtype: StDtype) -> anyhow::Result<GGMLType> {
@@ -189,7 +234,11 @@ fn cast_data(data: &[u8], src: GGMLType, dst: GGMLType) -> anyhow::Result<Vec<u8
         (GGMLType::F16, GGMLType::F32) => {
             let mut out = Vec::with_capacity(data.len() * 2);
             for c in data.chunks_exact(2) {
-                out.extend_from_slice(&f16_to_f32(u16::from_le_bytes([c[0], c[1]])).to_bits().to_le_bytes());
+                out.extend_from_slice(
+                    &f16_to_f32(u16::from_le_bytes([c[0], c[1]]))
+                        .to_bits()
+                        .to_le_bytes(),
+                );
             }
             Ok(out)
         }
@@ -206,7 +255,11 @@ fn decode_to_f32(data: &[u8], src: GGMLType) -> anyhow::Result<Vec<f32>> {
             .collect(),
         GGMLType::BF16 => data
             .chunks_exact(2)
-            .map(|c| Ok(f32::from_bits((u16::from_le_bytes([c[0], c[1]]) as u32) << 16)))
+            .map(|c| {
+                Ok(f32::from_bits(
+                    (u16::from_le_bytes([c[0], c[1]]) as u32) << 16,
+                ))
+            })
             .collect(),
         GGMLType::Q8_0 => anyhow::bail!("Q8_0 as source not supported"),
     }
@@ -237,7 +290,10 @@ fn parse_f32_le(data: &[u8]) -> anyhow::Result<Vec<f32>> {
     if data.len() % 4 != 0 {
         anyhow::bail!("f32 data length not divisible by 4");
     }
-    Ok(data.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect())
+    Ok(data
+        .chunks_exact(4)
+        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .collect())
 }
 
 fn f32_to_f16_bits(v: f32) -> u16 {

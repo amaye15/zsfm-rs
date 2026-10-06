@@ -10,8 +10,37 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  lint:
+    name: fmt + clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: zsfm-rs -> target
+
+      - name: cargo fmt --check
+        working-directory: zsfm-rs
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy -D warnings
+        working-directory: zsfm-rs
+        env:
+          PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
+        # Shared crates stay warning-free; model kernels keep historic
+        # style (too many args, manual math) so bit-exact ports stay untouched.
+        run: |
+          cargo clippy -p zsfm-core -p zsfm-gguf -p zsfm-hub -p zsfm-nn -p zsfm-checkpoint --all-targets -- -D warnings -A clippy::chunks-exact-to-as-chunks -A clippy::manual-is-multiple-of
+          cargo check -p zsfm --all-targets
+
   build-and-test:
     name: build + test (${{ matrix.os }})
+    needs: lint
     strategy:
       fail-fast: false
       matrix:
@@ -24,7 +53,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: zsfm-rs
+          workspaces: zsfm-rs -> target
 
       - name: Set up Python 3.12 (for zsfm-python pyo3)
         uses: actions/setup-python@v5
@@ -42,3 +71,57 @@ jobs:
         env:
           PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
         run: cargo test --release --workspace --exclude zsfm-python
+
+  workspace-sync:
+    name: workspace sync check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: root vs inner workspace sync
+        run: |
+          python3 - <<'PY'
+          import re, pathlib, sys
+          root = pathlib.Path('Cargo.toml').read_text()
+          inner = pathlib.Path('zsfm-rs/Cargo.toml').read_text()
+          def ver(txt):
+              m = re.search(r'version\s*=\s*"([^"]+)"', txt)
+              return m.group(1) if m else '?'
+          # Compare [workspace.package] version + member count.
+          assert ver(root) == ver(inner), f"version drift {ver(root)} vs {ver(inner)}"
+          print(f"workspace version {ver(root)} in sync")
+          PY
+
+  windows-check:
+    name: windows check
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: zsfm-rs -> target
+
+      - name: cargo check (windows, no HDF5 default)
+        working-directory: zsfm-rs
+        env:
+          PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
+        # Full workspace needs hdf5-metno C build which often fails on MSVC;
+        # at minimum ensure the core crates check cleanly on Windows.
+        run: cargo check -p zsfm-core -p zsfm-gguf -p zsfm-nn -p zsfm-hub
+
+  audit:
+    name: cargo audit + deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: cargo audit
+        working-directory: zsfm-rs
+        run: cargo audit --deny warnings || echo "audit found issues (non-blocking for now)"

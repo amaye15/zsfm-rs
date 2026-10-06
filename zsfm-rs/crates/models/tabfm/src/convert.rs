@@ -4,8 +4,8 @@ use std::path::Path;
 
 use anyhow::Context;
 use indicatif::{ProgressBar, ProgressStyle};
-use safetensors::SafeTensors;
 use safetensors::Dtype as StDtype;
+use safetensors::SafeTensors;
 
 use zsfm_gguf::{GGMLType, GGUFMetaValue, GGUFWriter};
 
@@ -62,8 +62,12 @@ pub fn convert(
             }
         };
 
-        let src_dtype = ggml_type_from_st(tensor_view.dtype())
-            .with_context(|| format!("tensor {hf_name}: unsupported dtype {:?}", tensor_view.dtype()))?;
+        let src_dtype = ggml_type_from_st(tensor_view.dtype()).with_context(|| {
+            format!(
+                "tensor {hf_name}: unsupported dtype {:?}",
+                tensor_view.dtype()
+            )
+        })?;
 
         let raw_data = tensor_view.data();
         let py_shape = tensor_view.shape();
@@ -133,21 +137,60 @@ fn ggml_type_from_st(dtype: StDtype) -> anyhow::Result<GGMLType> {
 
 /// Build GGUF metadata section from parsed config.
 fn write_metadata(writer: &mut GGUFWriter, model_id: &str, config: &TabFMConfig) {
-    writer.add_metadata("general.architecture", GGUFMetaValue::String("tabfm".into()));
+    writer.add_metadata(
+        "general.architecture",
+        GGUFMetaValue::String("tabfm".into()),
+    );
     writer.add_metadata("general.name", GGUFMetaValue::String(model_id.into()));
-    writer.add_metadata("tabfm.is_classifier", GGUFMetaValue::Bool(config.is_classifier));
-    writer.add_metadata("tabfm.embedding_length", GGUFMetaValue::Uint32(config.embed_dim));
-    writer.add_metadata("tabfm.max_classes", GGUFMetaValue::Uint32(config.max_classes));
-    writer.add_metadata("tabfm.col_block_count", GGUFMetaValue::Uint32(config.col_num_blocks));
-    writer.add_metadata("tabfm.col_head_count", GGUFMetaValue::Uint32(config.col_nhead));
-    writer.add_metadata("tabfm.col_num_inds", GGUFMetaValue::Uint32(config.col_num_inds));
-    writer.add_metadata("tabfm.row_block_count", GGUFMetaValue::Uint32(config.row_num_blocks));
-    writer.add_metadata("tabfm.row_head_count", GGUFMetaValue::Uint32(config.row_nhead));
-    writer.add_metadata("tabfm.row_num_cls", GGUFMetaValue::Uint32(config.row_num_cls));
-    writer.add_metadata("tabfm.icl_block_count", GGUFMetaValue::Uint32(config.icl_num_blocks));
-    writer.add_metadata("tabfm.icl_head_count", GGUFMetaValue::Uint32(config.icl_nhead));
+    writer.add_metadata(
+        "tabfm.is_classifier",
+        GGUFMetaValue::Bool(config.is_classifier),
+    );
+    writer.add_metadata(
+        "tabfm.embedding_length",
+        GGUFMetaValue::Uint32(config.embed_dim),
+    );
+    writer.add_metadata(
+        "tabfm.max_classes",
+        GGUFMetaValue::Uint32(config.max_classes),
+    );
+    writer.add_metadata(
+        "tabfm.col_block_count",
+        GGUFMetaValue::Uint32(config.col_num_blocks),
+    );
+    writer.add_metadata(
+        "tabfm.col_head_count",
+        GGUFMetaValue::Uint32(config.col_nhead),
+    );
+    writer.add_metadata(
+        "tabfm.col_num_inds",
+        GGUFMetaValue::Uint32(config.col_num_inds),
+    );
+    writer.add_metadata(
+        "tabfm.row_block_count",
+        GGUFMetaValue::Uint32(config.row_num_blocks),
+    );
+    writer.add_metadata(
+        "tabfm.row_head_count",
+        GGUFMetaValue::Uint32(config.row_nhead),
+    );
+    writer.add_metadata(
+        "tabfm.row_num_cls",
+        GGUFMetaValue::Uint32(config.row_num_cls),
+    );
+    writer.add_metadata(
+        "tabfm.icl_block_count",
+        GGUFMetaValue::Uint32(config.icl_num_blocks),
+    );
+    writer.add_metadata(
+        "tabfm.icl_head_count",
+        GGUFMetaValue::Uint32(config.icl_nhead),
+    );
     writer.add_metadata("tabfm.ff_factor", GGUFMetaValue::Uint32(config.ff_factor));
-    writer.add_metadata("tabfm.feature_group_size", GGUFMetaValue::Uint32(config.feature_group_size));
+    writer.add_metadata(
+        "tabfm.feature_group_size",
+        GGUFMetaValue::Uint32(config.feature_group_size),
+    );
     writer.add_metadata("tabfm.num_freq", GGUFMetaValue::Uint32(config.num_freq));
     writer.add_metadata("tabfm.norm_eps", GGUFMetaValue::Float64(config.norm_eps));
 }

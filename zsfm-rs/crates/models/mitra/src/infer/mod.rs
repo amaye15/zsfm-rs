@@ -62,8 +62,8 @@ struct BlockW {
 pub struct MitraModel {
     device: Device,
     config: MitraConfig,
-    x_embed_w: Tensor, // [dim, 1]
-    x_embed_b: Tensor, // [dim]
+    x_embed_w: Tensor,         // [dim, 1]
+    x_embed_b: Tensor,         // [dim]
     y_embed_w: Tensor, // classifier: [dim_output, dim] (Embedding table); regressor: [dim, 1] (Linear weight)
     y_embed_b: Option<Tensor>, // regressor only: [dim]
     y_mask_w: Tensor,  // [1, dim]
@@ -80,7 +80,12 @@ const LN_EPS: f64 = 1e-5;
 // GGUF loading
 // ---------------------------------------------------------------------------
 
-fn load_t(content: &gguf_file::Content, reader: &mut (impl Read + Seek), name: &str, device: &Device) -> Result<Tensor> {
+fn load_t(
+    content: &gguf_file::Content,
+    reader: &mut (impl Read + Seek),
+    name: &str,
+    device: &Device,
+) -> Result<Tensor> {
     zsfm_nn::load_tensor(content, reader, name, device, DType::F32)
 }
 
@@ -106,7 +111,8 @@ fn load_attn(
 impl MitraModel {
     pub fn load(gguf_path: &Path, config: MitraConfig) -> Result<Self> {
         let device = Device::Cpu;
-        let file = std::fs::File::open(gguf_path).with_context(|| format!("open {}", gguf_path.display()))?;
+        let file = std::fs::File::open(gguf_path)
+            .with_context(|| format!("open {}", gguf_path.display()))?;
         let mut reader = BufReader::with_capacity(zsfm_gguf::READ_BUF_CAPACITY, file);
         let content = gguf_file::Content::read(&mut reader).context("parse GGUF header")?;
 
@@ -180,7 +186,10 @@ impl MitraModel {
         x_query: &[Vec<f32>],
         n_classes: usize,
     ) -> Result<Vec<Vec<f32>>> {
-        anyhow::ensure!(self.config.task == Task::Classification, "model was loaded as a regressor");
+        anyhow::ensure!(
+            self.config.task == Task::Classification,
+            "model was loaded as a regressor"
+        );
         let (x_s, x_q, kept) = preprocess_x(x_support, x_query);
         let n_s = x_s.len();
         let n_q = x_q.len();
@@ -193,7 +202,9 @@ impl MitraModel {
         let logits = self.forward(x_emb, y_support_emb, y_query_mask, n_s, n_q, n_feat)?;
         let logits: Vec<f32> = logits.flatten_all()?.to_vec1()?;
         let dim_out = self.config.dim_output;
-        Ok((0..n_q).map(|i| logits[i * dim_out..i * dim_out + n_classes].to_vec()).collect())
+        Ok((0..n_q)
+            .map(|i| logits[i * dim_out..i * dim_out + n_classes].to_vec())
+            .collect())
     }
 
     /// Zero-shot regression. Returns predicted values in `y_support`'s original scale.
@@ -203,7 +214,10 @@ impl MitraModel {
         y_support: &[f32],
         x_query: &[Vec<f32>],
     ) -> Result<Vec<f32>> {
-        anyhow::ensure!(self.config.task == Task::Regression, "model was loaded as a classifier");
+        anyhow::ensure!(
+            self.config.task == Task::Regression,
+            "model was loaded as a classifier"
+        );
         let (x_s, x_q, kept) = preprocess_x(x_support, x_query);
         let n_s = x_s.len();
         let n_q = x_q.len();
@@ -211,8 +225,14 @@ impl MitraModel {
 
         let y_min = y_support.iter().copied().fold(f32::INFINITY, f32::min);
         let y_max = y_support.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-        anyhow::ensure!(y_max > y_min, "y_support must have at least two distinct values");
-        let y_scaled: Vec<f32> = y_support.iter().map(|&v| (v - y_min) / (y_max - y_min)).collect();
+        anyhow::ensure!(
+            y_max > y_min,
+            "y_support must have at least two distinct values"
+        );
+        let y_scaled: Vec<f32> = y_support
+            .iter()
+            .map(|&v| (v - y_min) / (y_max - y_min))
+            .collect();
 
         let x_emb = self.embed_x(&x_s, &x_q, n_s, n_q, n_feat)?;
         let y_support_emb = self.embed_y_regression_support(&y_scaled)?;
@@ -220,10 +240,20 @@ impl MitraModel {
 
         let out = self.forward(x_emb, y_support_emb, y_query_mask, n_s, n_q, n_feat)?;
         let out: Vec<f32> = out.flatten_all()?.to_vec1()?;
-        Ok(out.into_iter().map(|v| v * (y_max - y_min) + y_min).collect())
+        Ok(out
+            .into_iter()
+            .map(|v| v * (y_max - y_min) + y_min)
+            .collect())
     }
 
-    fn embed_x(&self, x_s: &[Vec<f32>], x_q: &[Vec<f32>], n_s: usize, n_q: usize, n_feat: usize) -> Result<(Tensor, Tensor)> {
+    fn embed_x(
+        &self,
+        x_s: &[Vec<f32>],
+        x_q: &[Vec<f32>],
+        n_s: usize,
+        n_q: usize,
+        n_feat: usize,
+    ) -> Result<(Tensor, Tensor)> {
         let (bx_s, bx_q) = quantile_bucketize_normalize(x_s, x_q);
         let flat_s: Vec<f32> = bx_s.into_iter().flatten().collect();
         let flat_q: Vec<f32> = bx_q.into_iter().flatten().collect();
@@ -231,8 +261,16 @@ impl MitraModel {
         let x_s_t = Tensor::from_vec(flat_s, (n_s * n_feat, 1), &self.device)?;
         let x_q_t = Tensor::from_vec(flat_q, (n_q * n_feat, 1), &self.device)?;
 
-        let x_s_emb = zsfm_nn::linear_bias(&x_s_t, &self.x_embed_w, &self.x_embed_b)?.reshape((n_s, n_feat, self.config.dim))?;
-        let x_q_emb = zsfm_nn::linear_bias(&x_q_t, &self.x_embed_w, &self.x_embed_b)?.reshape((n_q, n_feat, self.config.dim))?;
+        let x_s_emb = zsfm_nn::linear_bias(&x_s_t, &self.x_embed_w, &self.x_embed_b)?.reshape((
+            n_s,
+            n_feat,
+            self.config.dim,
+        ))?;
+        let x_q_emb = zsfm_nn::linear_bias(&x_q_t, &self.x_embed_w, &self.x_embed_b)?.reshape((
+            n_q,
+            n_feat,
+            self.config.dim,
+        ))?;
         Ok((x_s_emb, x_q_emb))
     }
 
@@ -249,7 +287,10 @@ impl MitraModel {
     fn embed_y_regression_support(&self, y_scaled: &[f32]) -> Result<Tensor> {
         let n_s = y_scaled.len();
         let y_t = Tensor::from_vec(y_scaled.to_vec(), (n_s, 1), &self.device)?;
-        let b = self.y_embed_b.as_ref().context("regressor y_embed missing bias")?;
+        let b = self
+            .y_embed_b
+            .as_ref()
+            .context("regressor y_embed missing bias")?;
         let emb = zsfm_nn::linear_bias(&y_t, &self.y_embed_w, b)?; // (n_s, dim)
         Ok(emb.reshape((n_s, 1, self.config.dim))?)
     }
@@ -283,15 +324,18 @@ impl MitraModel {
         let f1 = n_feat + 1;
 
         for blk in &self.blocks {
-            let (s2, q2) = query_block_forward(&support, &query, blk, self.config.n_heads, n_s, n_q, f1)?;
+            let (s2, q2) =
+                query_block_forward(&support, &query, blk, self.config.n_heads, n_s, n_q, f1)?;
             support = s2;
             query = q2;
         }
 
         let query = zsfm_nn::layer_norm(&query, &self.norm_f_w, &self.norm_f_b, LN_EPS)?;
         let query = zsfm_nn::linear_bias(&query, &self.head_w, &self.head_b)?; // (n_q, f+1, dim_output)
-        // Column 0 is the y-slot.
-        query.narrow(1, 0, 1)?.reshape((n_q, self.config.dim_output))
+                                                                               // Column 0 is the y-slot.
+        query
+            .narrow(1, 0, 1)?
+            .reshape((n_q, self.config.dim_output))
             .map_err(anyhow::Error::from)
     }
 }
@@ -320,8 +364,14 @@ fn query_block_forward(
     let s_att = mha(&s_row, &s_row, &s_row, &blk.attn_row, n_heads)?;
     let q_att = mha(&q_row, &s_row, &s_row, &blk.attn_row, n_heads)?;
 
-    let s_att = s_att.permute((1, 0, 2))?.contiguous()?.reshape((n_s, f1, s_att.dim(2)?))?;
-    let q_att = q_att.permute((1, 0, 2))?.contiguous()?.reshape((n_q, f1, q_att.dim(2)?))?;
+    let s_att = s_att
+        .permute((1, 0, 2))?
+        .contiguous()?
+        .reshape((n_s, f1, s_att.dim(2)?))?;
+    let q_att = q_att
+        .permute((1, 0, 2))?
+        .contiguous()?
+        .reshape((n_q, f1, q_att.dim(2)?))?;
 
     let mut support = (res_s + s_att)?;
     let mut query = (res_q + q_att)?;
@@ -331,8 +381,16 @@ fn query_block_forward(
     let res_q = query.clone();
     let s_ln = zsfm_nn::layer_norm(&support, &blk.ln2_w, &blk.ln2_b, LN_EPS)?;
     let q_ln = zsfm_nn::layer_norm(&query, &blk.ln2_w, &blk.ln2_b, LN_EPS)?;
-    let s_mlp = zsfm_nn::linear_bias(&zsfm_nn::linear_bias(&s_ln, &blk.mlp1_fc1_w, &blk.mlp1_fc1_b)?.gelu_erf()?, &blk.mlp1_fc2_w, &blk.mlp1_fc2_b)?;
-    let q_mlp = zsfm_nn::linear_bias(&zsfm_nn::linear_bias(&q_ln, &blk.mlp1_fc1_w, &blk.mlp1_fc1_b)?.gelu_erf()?, &blk.mlp1_fc2_w, &blk.mlp1_fc2_b)?;
+    let s_mlp = zsfm_nn::linear_bias(
+        &zsfm_nn::linear_bias(&s_ln, &blk.mlp1_fc1_w, &blk.mlp1_fc1_b)?.gelu_erf()?,
+        &blk.mlp1_fc2_w,
+        &blk.mlp1_fc2_b,
+    )?;
+    let q_mlp = zsfm_nn::linear_bias(
+        &zsfm_nn::linear_bias(&q_ln, &blk.mlp1_fc1_w, &blk.mlp1_fc1_b)?.gelu_erf()?,
+        &blk.mlp1_fc2_w,
+        &blk.mlp1_fc2_b,
+    )?;
     support = (res_s + s_mlp)?;
     query = (res_q + q_mlp)?;
 
@@ -353,8 +411,16 @@ fn query_block_forward(
     let res_q = query.clone();
     let s_ln = zsfm_nn::layer_norm(&support, &blk.ln4_w, &blk.ln4_b, LN_EPS)?;
     let q_ln = zsfm_nn::layer_norm(&query, &blk.ln4_w, &blk.ln4_b, LN_EPS)?;
-    let s_mlp = zsfm_nn::linear_bias(&zsfm_nn::linear_bias(&s_ln, &blk.mlp2_fc1_w, &blk.mlp2_fc1_b)?.gelu_erf()?, &blk.mlp2_fc2_w, &blk.mlp2_fc2_b)?;
-    let q_mlp = zsfm_nn::linear_bias(&zsfm_nn::linear_bias(&q_ln, &blk.mlp2_fc1_w, &blk.mlp2_fc1_b)?.gelu_erf()?, &blk.mlp2_fc2_w, &blk.mlp2_fc2_b)?;
+    let s_mlp = zsfm_nn::linear_bias(
+        &zsfm_nn::linear_bias(&s_ln, &blk.mlp2_fc1_w, &blk.mlp2_fc1_b)?.gelu_erf()?,
+        &blk.mlp2_fc2_w,
+        &blk.mlp2_fc2_b,
+    )?;
+    let q_mlp = zsfm_nn::linear_bias(
+        &zsfm_nn::linear_bias(&q_ln, &blk.mlp2_fc1_w, &blk.mlp2_fc1_b)?.gelu_erf()?,
+        &blk.mlp2_fc2_w,
+        &blk.mlp2_fc2_b,
+    )?;
     support = (res_s + s_mlp)?;
     query = (res_q + q_mlp)?;
 
@@ -373,15 +439,27 @@ fn mha(q: &Tensor, k: &Tensor, v: &Tensor, w: &AttnW, n_heads: usize) -> Result<
     let k = zsfm_nn::linear_bias(k, &w.k_w, &w.k_b)?;
     let v = zsfm_nn::linear_bias(v, &w.v_w, &w.v_b)?;
 
-    let q = q.reshape((batch, sq, n_heads, head_dim))?.permute((0, 2, 1, 3))?.contiguous()?;
-    let k = k.reshape((batch, skv, n_heads, head_dim))?.permute((0, 2, 1, 3))?.contiguous()?;
-    let v = v.reshape((batch, skv, n_heads, head_dim))?.permute((0, 2, 1, 3))?.contiguous()?;
+    let q = q
+        .reshape((batch, sq, n_heads, head_dim))?
+        .permute((0, 2, 1, 3))?
+        .contiguous()?;
+    let k = k
+        .reshape((batch, skv, n_heads, head_dim))?
+        .permute((0, 2, 1, 3))?
+        .contiguous()?;
+    let v = v
+        .reshape((batch, skv, n_heads, head_dim))?
+        .permute((0, 2, 1, 3))?
+        .contiguous()?;
 
     let scale = (head_dim as f64).sqrt();
     let scores = (q.matmul(&k.transpose(2, 3)?)? / scale)?;
     let attn = candle_nn::ops::softmax_last_dim(&scores)?;
     let out = attn.matmul(&v)?; // (batch, h, sq, head_dim)
-    let out = out.permute((0, 2, 1, 3))?.contiguous()?.reshape((batch, sq, dim))?;
+    let out = out
+        .permute((0, 2, 1, 3))?
+        .contiguous()?
+        .reshape((batch, sq, dim))?;
     zsfm_nn::linear_bias(&out, &w.o_w, &w.o_b)
 }
 
@@ -394,7 +472,10 @@ fn mha(q: &Tensor, k: &Tensor, v: &Tensor, w: &AttnW, n_heads: usize) -> Result<
 /// Mean-impute NaNs (mean computed pre-imputation from `x_support`), then drop feature columns
 /// that are constant across `x_support` (both computed from `x_support`, applied to both).
 /// Returns `(x_support, x_query, kept_feature_indices)`.
-fn preprocess_x(x_support: &[Vec<f32>], x_query: &[Vec<f32>]) -> (Vec<Vec<f32>>, Vec<Vec<f32>>, Vec<usize>) {
+fn preprocess_x(
+    x_support: &[Vec<f32>],
+    x_query: &[Vec<f32>],
+) -> (Vec<Vec<f32>>, Vec<Vec<f32>>, Vec<usize>) {
     let n_feat = x_support[0].len();
 
     let mut col_mean = vec![0f32; n_feat];
@@ -407,11 +488,18 @@ fn preprocess_x(x_support: &[Vec<f32>], x_query: &[Vec<f32>]) -> (Vec<Vec<f32>>,
                 count += 1;
             }
         }
-        col_mean[f] = if count > 0 { (sum / count as f64) as f32 } else { 0.0 };
+        col_mean[f] = if count > 0 {
+            (sum / count as f64) as f32
+        } else {
+            0.0
+        };
     }
 
     let impute = |row: &[f32]| -> Vec<f32> {
-        row.iter().enumerate().map(|(f, &v)| if v.is_nan() { col_mean[f] } else { v }).collect()
+        row.iter()
+            .enumerate()
+            .map(|(f, &v)| if v.is_nan() { col_mean[f] } else { v })
+            .collect()
     };
     let support_imputed: Vec<Vec<f32>> = x_support.iter().map(|r| impute(r)).collect();
     let query_imputed: Vec<Vec<f32>> = x_query.iter().map(|r| impute(r)).collect();
@@ -424,7 +512,9 @@ fn preprocess_x(x_support: &[Vec<f32>], x_query: &[Vec<f32>]) -> (Vec<Vec<f32>>,
         .collect();
 
     let select = |rows: &[Vec<f32>]| -> Vec<Vec<f32>> {
-        rows.iter().map(|r| kept.iter().map(|&f| r[f]).collect()).collect()
+        rows.iter()
+            .map(|r| kept.iter().map(|&f| r[f]).collect())
+            .collect()
     };
 
     (select(&support_imputed), select(&query_imputed), kept)
@@ -433,7 +523,10 @@ fn preprocess_x(x_support: &[Vec<f32>], x_query: &[Vec<f32>]) -> (Vec<Vec<f32>>,
 /// Per-feature quantile-bucketize normalization (`Tab2DQuantileEmbeddingX`): fit 999 quantile
 /// boundaries per column from `x_support`, bucketize both `x_support`/`x_query` against them,
 /// normalize the bucket index by `n_support`, then z-score using `x_support`'s own mean/std.
-fn quantile_bucketize_normalize(x_support: &[Vec<f32>], x_query: &[Vec<f32>]) -> (Vec<Vec<f32>>, Vec<Vec<f32>>) {
+fn quantile_bucketize_normalize(
+    x_support: &[Vec<f32>],
+    x_query: &[Vec<f32>],
+) -> (Vec<Vec<f32>>, Vec<Vec<f32>>) {
     let n_support = x_support.len();
     let n_features = x_support[0].len();
     let n_query = x_query.len();
@@ -443,9 +536,11 @@ fn quantile_bucketize_normalize(x_support: &[Vec<f32>], x_query: &[Vec<f32>]) ->
 
     for feat in 0..n_features {
         let mut col: Vec<f32> = x_support.iter().map(|r| r[feat]).collect();
-        col.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        col.sort_by(|a, b| a.total_cmp(b));
 
-        let boundaries: Vec<f32> = (1..1000).map(|i| quantile_linear(&col, i as f64 / 1000.0)).collect();
+        let boundaries: Vec<f32> = (1..1000)
+            .map(|i| quantile_linear(&col, i as f64 / 1000.0))
+            .collect();
 
         let bucket = |v: f32| -> f32 {
             let idx = boundaries.partition_point(|&b| b < v);
@@ -454,7 +549,11 @@ fn quantile_bucketize_normalize(x_support: &[Vec<f32>], x_query: &[Vec<f32>]) ->
 
         let bucketed_support: Vec<f32> = x_support.iter().map(|r| bucket(r[feat])).collect();
         let mean: f32 = bucketed_support.iter().sum::<f32>() / n_support as f32;
-        let var: f32 = bucketed_support.iter().map(|&v| (v - mean).powi(2)).sum::<f32>() / n_support as f32;
+        let var: f32 = bucketed_support
+            .iter()
+            .map(|&v| (v - mean).powi(2))
+            .sum::<f32>()
+            / n_support as f32;
         let std = var.sqrt();
 
         for (i, &v) in bucketed_support.iter().enumerate() {

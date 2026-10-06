@@ -57,7 +57,15 @@ impl Chronos2Config {
     }
 }
 
-fn default_u32<const N: u32>() -> u32 { N }
-fn default_f64_ten_thousand() -> f64 { 10000.0 }
-fn default_layer_norm_eps() -> f64 { 1e-6 }
-fn default_str_relu() -> String { "relu".into() }
+fn default_u32<const N: u32>() -> u32 {
+    N
+}
+fn default_f64_ten_thousand() -> f64 {
+    10000.0
+}
+fn default_layer_norm_eps() -> f64 {
+    1e-6
+}
+fn default_str_relu() -> String {
+    "relu".into()
+}

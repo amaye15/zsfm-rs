@@ -71,12 +71,22 @@ impl From<&Chronos2Config> for InferConfig {
 }
 
 impl InferConfig {
-    fn inner_dim(&self) -> usize { self.num_heads * self.d_kv }
+    fn inner_dim(&self) -> usize {
+        self.num_heads * self.d_kv
+    }
 
-    pub fn patch_size(&self) -> usize { self.patch_size }
-    pub fn patch_stride(&self) -> usize { self.patch_stride }
-    pub fn context_length(&self) -> usize { self.context_length }
-    pub fn quantiles(&self) -> &[f32] { &self.quantiles }
+    pub fn patch_size(&self) -> usize {
+        self.patch_size
+    }
+    pub fn patch_stride(&self) -> usize {
+        self.patch_stride
+    }
+    pub fn context_length(&self) -> usize {
+        self.context_length
+    }
+    pub fn quantiles(&self) -> &[f32] {
+        &self.quantiles
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -102,7 +112,10 @@ pub struct ChronosModelBuilder {
 
 impl ChronosModelBuilder {
     fn new(gguf_path: impl Into<PathBuf>) -> Self {
-        Self { gguf_path: gguf_path.into(), config: None }
+        Self {
+            gguf_path: gguf_path.into(),
+            config: None,
+        }
     }
 
     pub fn config(mut self, config: InferConfig) -> Self {
@@ -116,9 +129,9 @@ impl ChronosModelBuilder {
     }
 
     pub fn build(self) -> Result<ChronosModel> {
-        let config = self
-            .config
-            .context("ChronosModelBuilder: no config set — call .config(...) or .config_from(...)")?;
+        let config = self.config.context(
+            "ChronosModelBuilder: no config set — call .config(...) or .config_from(...)",
+        )?;
         ChronosModel::load(&self.gguf_path, config)
     }
 }
@@ -190,20 +203,45 @@ fn load_residual_block(
     content: &gguf_file::Content,
     reader: &mut (impl Read + Seek),
     prefix: &str,
-    d_out_h: usize,  // hidden_layer d_out = h_dim
-    d_out: usize,    // output_layer / skip d_out
+    d_out_h: usize, // hidden_layer d_out = h_dim
+    d_out: usize,   // output_layer / skip d_out
     device: &Device,
 ) -> Result<ResidualBlockWeights> {
     // hidden_layer: (h_dim, in_dim)
-    let hidden_w = load_weight(content, reader, &format!("{prefix}.hidden.weight"), d_out_h, device)?;
+    let hidden_w = load_weight(
+        content,
+        reader,
+        &format!("{prefix}.hidden.weight"),
+        d_out_h,
+        device,
+    )?;
     let hidden_b = load_tensor(content, reader, &format!("{prefix}.hidden.bias"), device)?;
     // output_layer: (out_dim, h_dim)
-    let output_w = load_weight(content, reader, &format!("{prefix}.output.weight"), d_out, device)?;
+    let output_w = load_weight(
+        content,
+        reader,
+        &format!("{prefix}.output.weight"),
+        d_out,
+        device,
+    )?;
     let output_b = load_tensor(content, reader, &format!("{prefix}.output.bias"), device)?;
     // residual_layer: (out_dim, in_dim)
-    let skip_w = load_weight(content, reader, &format!("{prefix}.skip.weight"), d_out, device)?;
+    let skip_w = load_weight(
+        content,
+        reader,
+        &format!("{prefix}.skip.weight"),
+        d_out,
+        device,
+    )?;
     let skip_b = load_tensor(content, reader, &format!("{prefix}.skip.bias"), device)?;
-    Ok(ResidualBlockWeights { hidden_w, hidden_b, output_w, output_b, skip_w, skip_b })
+    Ok(ResidualBlockWeights {
+        hidden_w,
+        hidden_b,
+        output_w,
+        output_b,
+        skip_w,
+        skip_b,
+    })
 }
 
 fn load_attn(
@@ -220,11 +258,11 @@ fn load_attn(
     let q_w = load_weight(content, reader, &p("q.weight"), inner_dim, device)?;
     let k_w = load_weight(content, reader, &p("k.weight"), inner_dim, device)?;
     let v_w = load_weight(content, reader, &p("v.weight"), inner_dim, device)?;
-    let qkv_w = Tensor::cat(&[&q_w, &k_w, &v_w], 0)
-        .with_context(|| format!("qkv cat blk.{blk}.{kind}"))?;
+    let qkv_w =
+        Tensor::cat(&[&q_w, &k_w, &v_w], 0).with_context(|| format!("qkv cat blk.{blk}.{kind}"))?;
     Ok(AttnWeights {
         qkv_w,
-        o_w:    load_weight(content, reader, &p("o.weight"), d_model, device)?,
+        o_w: load_weight(content, reader, &p("o.weight"), d_model, device)?,
         norm_w: load_tensor(content, reader, &norm_name, device)?,
     })
 }
@@ -251,9 +289,8 @@ impl ChronosModel {
         let token_embd = load_tensor(&content, &mut reader, "token_embd.weight", &device)?;
 
         // input_patch_embedding: in=3*ps, h=d_ff, out=d_model
-        let input_patch = load_residual_block(
-            &content, &mut reader, "input_patch", ff, d, &device,
-        )?;
+        let input_patch =
+            load_residual_block(&content, &mut reader, "input_patch", ff, d, &device)?;
 
         // Encoder blocks
         let mut blocks = Vec::with_capacity(config.num_layers);
@@ -261,24 +298,53 @@ impl ChronosModel {
             let time_attn = load_attn(&content, &mut reader, n, "time_attn", d, id, &device)?;
             let group_attn = load_attn(&content, &mut reader, n, "group_attn", d, id, &device)?;
             let ffn = FfnWeights {
-                wi_w: load_weight(&content, &mut reader, &format!("blk.{n}.ffn.wi.weight"), ff, &device)?,
-                wo_w: load_weight(&content, &mut reader, &format!("blk.{n}.ffn.wo.weight"), d, &device)?,
-                norm_w: load_tensor(&content, &mut reader, &format!("blk.{n}.ffn_norm.weight"), &device)?,
+                wi_w: load_weight(
+                    &content,
+                    &mut reader,
+                    &format!("blk.{n}.ffn.wi.weight"),
+                    ff,
+                    &device,
+                )?,
+                wo_w: load_weight(
+                    &content,
+                    &mut reader,
+                    &format!("blk.{n}.ffn.wo.weight"),
+                    d,
+                    &device,
+                )?,
+                norm_w: load_tensor(
+                    &content,
+                    &mut reader,
+                    &format!("blk.{n}.ffn_norm.weight"),
+                    &device,
+                )?,
             };
-            blocks.push(BlockWeights { time_attn, group_attn, ffn });
+            blocks.push(BlockWeights {
+                time_attn,
+                group_attn,
+                ffn,
+            });
         }
 
         let enc_norm = load_tensor(&content, &mut reader, "enc_norm.weight", &device)?;
 
         // output_patch_embedding: in=d_model, h=d_ff, out=num_quantiles*patch_size
         let out_d = nq * ps;
-        let output_patch = load_residual_block(
-            &content, &mut reader, "output_patch", ff, out_d, &device,
-        )?;
+        let output_patch =
+            load_residual_block(&content, &mut reader, "output_patch", ff, out_d, &device)?;
 
         let rope = RopeCache::new(config.d_kv, 8192, config.rope_theta, &device)?;
 
-        Ok(Self { device, config, rope, token_embd, input_patch, blocks, enc_norm, output_patch })
+        Ok(Self {
+            device,
+            config,
+            rope,
+            token_embd,
+            input_patch,
+            blocks,
+            enc_norm,
+            output_patch,
+        })
     }
 
     // -----------------------------------------------------------------------
@@ -307,16 +373,21 @@ impl ChronosModel {
 
         // --- 3. Build input features for context patches [n_ctx_patches, 3*ps] ---
         let ctx_features = build_patch_features(
-            &padded, n_ctx_patches, ps, stride,
-            -((n_ctx_patches * ps) as f32), 0.0,  // time enc: [-n*ps, ..., -1] / scale
+            &padded,
+            n_ctx_patches,
+            ps,
+            stride,
+            -((n_ctx_patches * ps) as f32),
+            0.0, // time enc: [-n*ps, ..., -1] / scale
             cfg.time_encoding_scale as f32,
             true, // observed (mask = 1)
         );
 
         // --- 4. Build input features for future patches [n_out_patches, 3*ps] ---
         let fut_features = build_patch_features_future(
-            n_out_patches, ps,
-            0.0,  // start time index
+            n_out_patches,
+            ps,
+            0.0, // start time index
             cfg.time_encoding_scale as f32,
         );
 
@@ -392,12 +463,7 @@ impl ChronosModel {
         apply_t5_rms_norm(&x, &self.enc_norm, self.config.layer_norm_eps)
     }
 
-    fn forward_block(
-        &self,
-        x: Tensor,
-        blk: &BlockWeights,
-        seq_len: usize,
-    ) -> Result<Tensor> {
+    fn forward_block(&self, x: Tensor, blk: &BlockWeights, seq_len: usize) -> Result<Tensor> {
         // TimeSelfAttention: pre-norm + add residual
         let normed = apply_t5_rms_norm(&x, &blk.time_attn.norm_w, self.config.layer_norm_eps)?;
         let attn_out = self.forward_time_attn(&normed, &blk.time_attn, seq_len)?;
@@ -420,7 +486,7 @@ impl ChronosModel {
 
     fn forward_time_attn(
         &self,
-        x: &Tensor,        // [1, seq_len, d_model]
+        x: &Tensor, // [1, seq_len, d_model]
         w: &AttnWeights,
         seq_len: usize,
     ) -> Result<Tensor> {
@@ -435,9 +501,18 @@ impl ChronosModel {
         let v = qkv.narrow(D::Minus1, 2 * id, id)?;
 
         // Reshape: [1, n_heads, seq_len, d_kv]
-        let q = q.reshape((1, seq_len, nh, dkv))?.permute([0, 2, 1, 3])?.contiguous()?;
-        let k = k.reshape((1, seq_len, nh, dkv))?.permute([0, 2, 1, 3])?.contiguous()?;
-        let v = v.reshape((1, seq_len, nh, dkv))?.permute([0, 2, 1, 3])?.contiguous()?;
+        let q = q
+            .reshape((1, seq_len, nh, dkv))?
+            .permute([0, 2, 1, 3])?
+            .contiguous()?;
+        let k = k
+            .reshape((1, seq_len, nh, dkv))?
+            .permute([0, 2, 1, 3])?
+            .contiguous()?;
+        let v = v
+            .reshape((1, seq_len, nh, dkv))?
+            .permute([0, 2, 1, 3])?
+            .contiguous()?;
 
         let q = self.rope.apply(&q, seq_len)?;
         let k = self.rope.apply(&k, seq_len)?;
@@ -451,7 +526,10 @@ impl ChronosModel {
         let out = attn.matmul(&v)?;
 
         // [1, n_heads, seq_len, d_kv] → [1, seq_len, inner_dim]
-        let out = out.permute([0, 2, 1, 3])?.contiguous()?.reshape((1, seq_len, id))?;
+        let out = out
+            .permute([0, 2, 1, 3])?
+            .contiguous()?
+            .reshape((1, seq_len, id))?;
 
         // Output projection
         linear(&out, &w.o_w, None)
@@ -513,7 +591,7 @@ fn apply_t5_rms_norm(x: &Tensor, weight: &Tensor, eps: f64) -> Result<Tensor> {
 fn apply_act(x: &Tensor, name: &str) -> Result<Tensor> {
     match name {
         "relu" => Ok(x.relu()?),
-        "gelu" => Ok(x.gelu_erf()?),       // standard erf-based gelu
+        "gelu" => Ok(x.gelu_erf()?), // standard erf-based gelu
         "gelu_new" | "gelu_pytorch_tanh" => Ok(x.gelu()?), // tanh approx
         "silu" | "swish" => Ok(candle_nn::ops::silu(x)?),
         other => bail!("unsupported activation function: {other}"),
@@ -642,7 +720,10 @@ impl zsfm_core::Forecaster for ChronosModel {
         _mask: &[Vec<bool>],
         horizon: usize,
     ) -> Result<zsfm_core::QuantileMatrix> {
-        anyhow::ensure!(context.len() == 1, "ChronosModel only supports univariate forecasting (1 variate)");
+        anyhow::ensure!(
+            context.len() == 1,
+            "ChronosModel only supports univariate forecasting (1 variate)"
+        );
         let qmat = ChronosModel::forecast(self, &context[0], horizon)?; // [n_q][horizon]
         Ok(qmat.into_iter().map(|row| vec![row]).collect())
     }

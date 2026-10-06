@@ -88,16 +88,21 @@ pub fn convert(
     pb.finish_with_message("tensors processed");
 
     if !skipped.is_empty() {
-        eprintln!("\nWarning: {} tensor(s) skipped (unrecognised names):", skipped.len());
-        for name in &skipped { eprintln!("  {name}"); }
+        eprintln!(
+            "\nWarning: {} tensor(s) skipped (unrecognised names):",
+            skipped.len()
+        );
+        for name in &skipped {
+            eprintln!("  {name}");
+        }
     }
     if fallback_count > 0 {
         eprintln!("\nNote: {fallback_count} tensor(s) fell back to F32.");
     }
 
     println!("Writing {mapped} tensors to {} …", output_path.display());
-    let out_file = File::create(output_path)
-        .with_context(|| format!("create {}", output_path.display()))?;
+    let out_file =
+        File::create(output_path).with_context(|| format!("create {}", output_path.display()))?;
     let mut buf_writer = BufWriter::new(out_file);
     writer.write_to(&mut buf_writer)?;
     println!("Done.");
@@ -105,17 +110,47 @@ pub fn convert(
 }
 
 fn write_metadata(writer: &mut GGUFWriter, config: &LagLlamaConfig) {
-    writer.add_metadata("general.architecture",   GGUFMetaValue::String("lag_llama".into()));
-    writer.add_metadata("general.name",           GGUFMetaValue::String("Lag-Llama".into()));
-    writer.add_metadata("lag_llama.n_layer",      GGUFMetaValue::Uint32(config.n_layer as u32));
-    writer.add_metadata("lag_llama.n_head",       GGUFMetaValue::Uint32(config.n_head as u32));
-    writer.add_metadata("lag_llama.n_embd_per_head", GGUFMetaValue::Uint32(config.n_embd_per_head as u32));
-    writer.add_metadata("lag_llama.n_embd",       GGUFMetaValue::Uint32(config.n_embd as u32));
-    writer.add_metadata("lag_llama.mlp_hidden",   GGUFMetaValue::Uint32(config.mlp_hidden as u32));
-    writer.add_metadata("lag_llama.feature_size", GGUFMetaValue::Uint32(config.feature_size as u32));
-    writer.add_metadata("lag_llama.n_lags",       GGUFMetaValue::Uint32(config.n_lags as u32));
-    writer.add_metadata("lag_llama.n_time_feat",  GGUFMetaValue::Uint32(config.n_time_feat as u32));
-    writer.add_metadata("lag_llama.max_context_length", GGUFMetaValue::Uint32(config.max_context_length as u32));
+    writer.add_metadata(
+        "general.architecture",
+        GGUFMetaValue::String("lag_llama".into()),
+    );
+    writer.add_metadata("general.name", GGUFMetaValue::String("Lag-Llama".into()));
+    writer.add_metadata(
+        "lag_llama.n_layer",
+        GGUFMetaValue::Uint32(config.n_layer as u32),
+    );
+    writer.add_metadata(
+        "lag_llama.n_head",
+        GGUFMetaValue::Uint32(config.n_head as u32),
+    );
+    writer.add_metadata(
+        "lag_llama.n_embd_per_head",
+        GGUFMetaValue::Uint32(config.n_embd_per_head as u32),
+    );
+    writer.add_metadata(
+        "lag_llama.n_embd",
+        GGUFMetaValue::Uint32(config.n_embd as u32),
+    );
+    writer.add_metadata(
+        "lag_llama.mlp_hidden",
+        GGUFMetaValue::Uint32(config.mlp_hidden as u32),
+    );
+    writer.add_metadata(
+        "lag_llama.feature_size",
+        GGUFMetaValue::Uint32(config.feature_size as u32),
+    );
+    writer.add_metadata(
+        "lag_llama.n_lags",
+        GGUFMetaValue::Uint32(config.n_lags as u32),
+    );
+    writer.add_metadata(
+        "lag_llama.n_time_feat",
+        GGUFMetaValue::Uint32(config.n_time_feat as u32),
+    );
+    writer.add_metadata(
+        "lag_llama.max_context_length",
+        GGUFMetaValue::Uint32(config.max_context_length as u32),
+    );
 }
 
 fn f32_to_bytes(vals: &[f32]) -> Vec<u8> {
@@ -126,13 +161,15 @@ fn apply_dtype(f32_vals: &[f32], dst: GGMLType) -> anyhow::Result<(GGMLType, Vec
     match dst {
         GGMLType::F32 => Ok((GGMLType::F32, f32_to_bytes(f32_vals))),
         GGMLType::F16 => {
-            let bytes: Vec<u8> = f32_vals.iter()
+            let bytes: Vec<u8> = f32_vals
+                .iter()
                 .flat_map(|&v| f32_to_f16_bits(v).to_le_bytes())
                 .collect();
             Ok((GGMLType::F16, bytes))
         }
         GGMLType::BF16 => {
-            let bytes: Vec<u8> = f32_vals.iter()
+            let bytes: Vec<u8> = f32_vals
+                .iter()
                 .flat_map(|&v| ((v.to_bits() >> 16) as u16).to_le_bytes())
                 .collect();
             Ok((GGMLType::BF16, bytes))
@@ -144,7 +181,10 @@ fn apply_dtype(f32_vals: &[f32], dst: GGMLType) -> anyhow::Result<(GGMLType, Vec
 fn quantize_q8_0(values: &[f32]) -> anyhow::Result<Vec<u8>> {
     const BLOCK: usize = 32;
     if values.len() % BLOCK != 0 {
-        anyhow::bail!("Q8_0 requires count divisible by {BLOCK}, got {}", values.len());
+        anyhow::bail!(
+            "Q8_0 requires count divisible by {BLOCK}, got {}",
+            values.len()
+        );
     }
     let n_blocks = values.len() / BLOCK;
     let mut out = vec![0u8; n_blocks * 34];
@@ -167,11 +207,17 @@ fn f32_to_f16_bits(v: f32) -> u16 {
     let sign = ((bits >> 16) & 0x8000) as u16;
     let exp = ((bits >> 23) & 0xFF) as i32;
     let mantissa = bits & 0x007F_FFFF;
-    if exp == 0xFF { return sign | 0x7C00 | if mantissa != 0 { 0x0200 } else { 0 }; }
+    if exp == 0xFF {
+        return sign | 0x7C00 | if mantissa != 0 { 0x0200 } else { 0 };
+    }
     let new_exp = exp - 127 + 15;
-    if new_exp >= 31 { return sign | 0x7C00; }
+    if new_exp >= 31 {
+        return sign | 0x7C00;
+    }
     if new_exp <= 0 {
-        if new_exp < -10 { return sign; }
+        if new_exp < -10 {
+            return sign;
+        }
         let m = (mantissa | 0x0080_0000) >> (1 - new_exp);
         return sign | (m >> 13) as u16;
     }

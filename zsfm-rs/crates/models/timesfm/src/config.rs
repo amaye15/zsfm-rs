@@ -39,19 +39,19 @@ impl Default for TimesFMConfig {
         let quantiles = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9];
         let n_outputs = quantiles.len() + 1; // 10
         Self {
-            input_patch_len:    32,
-            output_patch_len:   128,
+            input_patch_len: 32,
+            output_patch_len: 128,
             output_quantile_len: 1024,
-            num_layers:         20,
-            d_model:            1280,
-            d_ff:               1280,
-            num_heads:          16,
-            head_dim:           80,
+            num_layers: 20,
+            d_model: 1280,
+            d_ff: 1280,
+            num_heads: 16,
+            head_dim: 80,
             n_outputs,
-            decode_index:       5,
-            context_limit:      16384,
-            rms_norm_eps:       1e-6,
-            rope_theta:         10000.0,
+            decode_index: 5,
+            context_limit: 16384,
+            rms_norm_eps: 1e-6,
+            rope_theta: 10000.0,
             quantiles,
         }
     }

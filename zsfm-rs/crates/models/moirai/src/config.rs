@@ -1,14 +1,14 @@
 /// Moirai-1.0-R-large configuration.
 #[derive(Clone)]
 pub struct MoiraiConfig {
-    pub d_model: usize,           // 1024
-    pub n_layers: usize,          // 24
-    pub n_heads: usize,           // 16
-    pub head_dim: usize,          // 64
-    pub d_ff: usize,              // 2736
-    pub max_seq_len: usize,       // 512 (max context length in timesteps)
-    pub patch_sizes: Vec<usize>,  // [8, 16, 32, 64, 128]
-    pub max_patch_size: usize,    // 128 (output head dimension)
+    pub d_model: usize,          // 1024
+    pub n_layers: usize,         // 24
+    pub n_heads: usize,          // 16
+    pub head_dim: usize,         // 64
+    pub d_ff: usize,             // 2736
+    pub max_seq_len: usize,      // 512 (max context length in timesteps)
+    pub patch_sizes: Vec<usize>, // [8, 16, 32, 64, 128]
+    pub max_patch_size: usize,   // 128 (output head dimension)
 }
 
 impl MoiraiConfig {
@@ -27,7 +27,9 @@ impl MoiraiConfig {
 
     /// Index of a given patch size in patch_sizes.
     pub fn patch_idx(&self, patch_size: usize) -> usize {
-        self.patch_sizes.iter().position(|&p| p == patch_size)
+        self.patch_sizes
+            .iter()
+            .position(|&p| p == patch_size)
             .unwrap_or(2) // default to index 2 = 32
     }
 }

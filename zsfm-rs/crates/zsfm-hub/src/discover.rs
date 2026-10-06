@@ -19,7 +19,18 @@ use crate::http::{build_client, HF_BASE};
 /// preferred when a repo ships more than one format and the caller doesn't
 /// request a specific one.
 pub const FORMAT_PRIORITY: &[&str] = &[
-    "safetensors", "bin", "pt", "pth", "ckpt", "onnx", "h5", "hdf5", "keras", "npz", "npy", "gguf",
+    "safetensors",
+    "bin",
+    "pt",
+    "pth",
+    "ckpt",
+    "onnx",
+    "h5",
+    "hdf5",
+    "keras",
+    "npz",
+    "npy",
+    "gguf",
 ];
 
 pub struct DownloadedRepo {
@@ -49,6 +60,8 @@ pub async fn list_repo_files(
     revision: &str,
     hf_token: Option<&str>,
 ) -> anyhow::Result<Vec<String>> {
+    const MAX_LISTING_BYTES: usize = 16 << 20;
+    const MAX_SIBLINGS: usize = 100_000;
     let client = build_client(hf_token)?;
     let url = if revision == "main" {
         format!("{HF_BASE}/api/models/{repo_id}")
@@ -67,7 +80,24 @@ pub async fn list_repo_files(
              revision, and (for gated/private repos) that --token / HF_TOKEN is set"
         );
     }
-    let info: RepoInfo = resp.json().await.context("parse repo file listing")?;
+    if let Some(len) = resp.content_length() {
+        anyhow::ensure!(
+            len <= MAX_LISTING_BYTES as u64,
+            "repo listing too large: {len} bytes (max {MAX_LISTING_BYTES})"
+        );
+    }
+    let bytes = resp.bytes().await.context("read repo listing")?;
+    anyhow::ensure!(
+        bytes.len() <= MAX_LISTING_BYTES,
+        "repo listing too large: {} bytes (max {MAX_LISTING_BYTES})",
+        bytes.len()
+    );
+    let info: RepoInfo = serde_json::from_slice(&bytes).context("parse repo file listing")?;
+    anyhow::ensure!(
+        info.siblings.len() <= MAX_SIBLINGS,
+        "repo lists too many files: {} (max {MAX_SIBLINGS})",
+        info.siblings.len()
+    );
     Ok(info.siblings.into_iter().map(|s| s.rfilename).collect())
 }
 
@@ -105,7 +135,9 @@ pub async fn download_any_format(
         Some(f) => {
             let f = f.trim_start_matches('.').to_ascii_lowercase();
             anyhow::ensure!(
-                files.iter().any(|p| ext_of(p).as_deref() == Some(f.as_str())),
+                files
+                    .iter()
+                    .any(|p| ext_of(p).as_deref() == Some(f.as_str())),
                 "repo {repo_id} has no .{f} files. Found extensions: {}",
                 describe_extensions(&files)
             );
@@ -179,7 +211,9 @@ pub async fn download_any_format(
     };
 
     let config_json = if files.iter().any(|f| f == "config.json") {
-        fetch_file(&client, repo_id, "config.json", dest_dir, None).await.ok()
+        fetch_file(&client, repo_id, "config.json", dest_dir, None)
+            .await
+            .ok()
     } else {
         None
     };

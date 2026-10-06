@@ -12,24 +12,24 @@ pub fn map_tensor_name(name: &str) -> Option<String> {
     // input/output patch embedding (no block_stack prefix)
     if let Some(rest) = name.strip_prefix("input_patch_embedding.") {
         let suffix = match rest {
-            "hidden_layer.weight"   => "in_emb.hidden.weight",
-            "hidden_layer.bias"     => "in_emb.hidden.bias",
-            "output_layer.weight"   => "in_emb.output.weight",
-            "output_layer.bias"     => "in_emb.output.bias",
+            "hidden_layer.weight" => "in_emb.hidden.weight",
+            "hidden_layer.bias" => "in_emb.hidden.bias",
+            "output_layer.weight" => "in_emb.output.weight",
+            "output_layer.bias" => "in_emb.output.bias",
             "residual_layer.weight" => "in_emb.residual.weight",
-            "residual_layer.bias"   => "in_emb.residual.bias",
+            "residual_layer.bias" => "in_emb.residual.bias",
             _ => return None,
         };
         return Some(suffix.into());
     }
     if let Some(rest) = name.strip_prefix("output_patch_embedding.") {
         let suffix = match rest {
-            "hidden_layer.weight"   => "out_emb.hidden.weight",
-            "hidden_layer.bias"     => "out_emb.hidden.bias",
-            "output_layer.weight"   => "out_emb.output.weight",
-            "output_layer.bias"     => "out_emb.output.bias",
+            "hidden_layer.weight" => "out_emb.hidden.weight",
+            "hidden_layer.bias" => "out_emb.hidden.bias",
+            "output_layer.weight" => "out_emb.output.weight",
+            "output_layer.bias" => "out_emb.output.bias",
             "residual_layer.weight" => "out_emb.residual.weight",
-            "residual_layer.bias"   => "out_emb.residual.bias",
+            "residual_layer.bias" => "out_emb.residual.bias",
             _ => return None,
         };
         return Some(suffix.into());
@@ -40,18 +40,18 @@ pub fn map_tensor_name(name: &str) -> Option<String> {
         let (n_str, rest) = rest.split_once('.')?;
         let n: u32 = n_str.parse().ok()?;
         let gguf_suffix = match rest {
-            "norm_slstm.weight"                   => "norm_slstm",
-            "slstm_layer.fgate.weight"             => "fgate.weight",
-            "slstm_layer.igate.weight"             => "igate.weight",
-            "slstm_layer.zgate.weight"             => "zgate.weight",
-            "slstm_layer.ogate.weight"             => "ogate.weight",
+            "norm_slstm.weight" => "norm_slstm",
+            "slstm_layer.fgate.weight" => "fgate.weight",
+            "slstm_layer.igate.weight" => "igate.weight",
+            "slstm_layer.zgate.weight" => "zgate.weight",
+            "slstm_layer.ogate.weight" => "ogate.weight",
             "slstm_layer.slstm_cell._recurrent_kernel_" => "slstm_kernel",
-            "slstm_layer.slstm_cell._bias_"        => "slstm_bias",
-            "slstm_layer.group_norm.weight"        => "group_norm",
-            "norm_ffn.weight"                      => "norm_ffn",
-            "ffn.proj_up_gate.weight"              => "ffn_gate.weight",
-            "ffn.proj_up.weight"                   => "ffn_up.weight",
-            "ffn.proj_down.weight"                 => "ffn_down.weight",
+            "slstm_layer.slstm_cell._bias_" => "slstm_bias",
+            "slstm_layer.group_norm.weight" => "group_norm",
+            "norm_ffn.weight" => "norm_ffn",
+            "ffn.proj_up_gate.weight" => "ffn_gate.weight",
+            "ffn.proj_up.weight" => "ffn_up.weight",
+            "ffn.proj_down.weight" => "ffn_down.weight",
             _ => return None,
         };
         return Some(format!("blk.{n}.{gguf_suffix}"));

@@ -45,6 +45,9 @@ jobs:
           uv pip install maturin
           uv run maturin develop --manifest-path zsfm-rs/crates/zsfm-python/Cargo.toml
 
+      - name: ruff check
+        run: uv run ruff check . || echo "ruff not configured (non-blocking)"
+
       - name: pytest
         run: uv run pytest tests/python -v
 

@@ -41,15 +41,38 @@ fn zsfm(m: &Bound<'_, PyModule>) -> PyResult<()> {
 #[pyfunction]
 fn list_models() -> Vec<&'static str> {
     vec![
-        "toto", "chronos", "timesfm", "sundial", "ttm", "lag_llama", "moment", "moirai",
-        "moirai2", "flowstate", "tirex", "mitra", "tabdpt", "tabicl", "tabpfn", "tabfm",
+        "toto",
+        "chronos",
+        "timesfm",
+        "sundial",
+        "ttm",
+        "lag_llama",
+        "moment",
+        "moirai",
+        "moirai2",
+        "flowstate",
+        "tirex",
+        "mitra",
+        "tabdpt",
+        "tabicl",
+        "tabpfn",
+        "tabfm",
     ]
 }
 #[pyfunction]
 fn list_forecasters() -> Vec<&'static str> {
     vec![
-        "toto", "chronos", "timesfm", "sundial", "ttm", "lag_llama", "moment", "moirai",
-        "moirai2", "flowstate", "tirex",
+        "toto",
+        "chronos",
+        "timesfm",
+        "sundial",
+        "ttm",
+        "lag_llama",
+        "moment",
+        "moirai",
+        "moirai2",
+        "flowstate",
+        "tirex",
     ]
 }
 #[pyfunction]
@@ -72,56 +95,46 @@ fn dtype_from_str(s: &str) -> PyResult<zsfm_gguf::GGMLType> {
         ))),
     }
 }
-fn delete_cached_model(canonical: &std::path::Path, output: Option<&std::path::Path>) -> anyhow::Result<()> {
-    let mut deleted_any = false;
-    if let Some(cache_dir) = canonical.parent() {
-        if cache_dir.exists() {
-            let count = walk_file_count(cache_dir);
-            std::fs::remove_dir_all(cache_dir)?;
-            println!("Deleted cache directory {} ({} files)", cache_dir.display(), count);
-            deleted_any = true;
-        } else if canonical.exists() {
-            std::fs::remove_file(canonical)?;
-            println!("Deleted {}", canonical.display());
-            deleted_any = true;
-        } else {
-            println!("No cache found at {} (already deleted?)", cache_dir.display());
+fn delete_cached_model(
+    canonical: &std::path::Path,
+    output: Option<&std::path::Path>,
+) -> anyhow::Result<()> {
+    zsfm_hub::delete_cached_model(canonical, output)
+}
+
+/// Minimal pass-through GGUF writer for checkpoints whose tensor names are
+/// used unchanged (TabICL, TabPFN-3). Mirrors `zsfm convert` Q8 fallback.
+fn write_generic_gguf(
+    ckpt: &zsfm_checkpoint::Checkpoint,
+    output: &std::path::Path,
+    out_dtype: zsfm_gguf::GGMLType,
+    repo: &str,
+) -> anyhow::Result<()> {
+    use std::io::BufWriter;
+    let mut writer = zsfm_gguf::GGUFWriter::new();
+    writer.add_metadata(
+        "general.architecture",
+        zsfm_gguf::GGUFMetaValue::String("unknown".to_string()),
+    );
+    writer.add_metadata(
+        "general.name",
+        zsfm_gguf::GGUFMetaValue::String(repo.to_string()),
+    );
+    for t in &ckpt.tensors {
+        let (data, dst, _) =
+            zsfm_checkpoint::cast::cast_with_q8_fallback(&t.data, t.dtype, &t.shape, out_dtype)?;
+        let gguf_shape: Vec<u64> = t.shape.iter().rev().copied().collect();
+        writer.add_tensor(t.name.clone(), gguf_shape, dst, data);
+    }
+    if let Some(parent) = output.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
         }
-    } else if canonical.exists() {
-        std::fs::remove_file(canonical)?;
-        println!("Deleted {}", canonical.display());
-        deleted_any = true;
     }
-    if let Some(out) = output {
-        if out.exists() {
-            std::fs::remove_file(out)?;
-            println!("Deleted output {}", out.display());
-            deleted_any = true;
-        } else {
-            println!("Output file not found: {} (already deleted?)", out.display());
-        }
-    }
-    if !deleted_any {
-        println!("Nothing to delete.");
-    }
+    let out_file = std::fs::File::create(output)?;
+    writer.write_to(&mut BufWriter::new(out_file))?;
     Ok(())
 }
-
-fn walk_file_count(dir: &std::path::Path) -> usize {
-    let mut count = 0;
-    if let Ok(entries) = std::fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                count += walk_file_count(&path);
-            } else {
-                count += 1;
-            }
-        }
-    }
-    count
-}
-
 
 // Generic convert/delete that dispatch by model name — mirrors `zsfm <model> convert/delete`.
 #[pyfunction]
@@ -138,238 +151,551 @@ fn convert(
 ) -> PyResult<()> {
     let dtype_ty = dtype_from_str(dtype)?;
     let model_dir = PathBuf::from(model_dir);
-    let rt = tokio::runtime::Runtime::new().map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+    let rt = tokio::runtime::Runtime::new()
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
     rt.block_on(async {
         match model {
             "toto" => {
                 let repo = "Datadog/Toto-2.0-2.5B";
-                let out = output.map(PathBuf::from).unwrap_or_else(|| PathBuf::from("gguf/toto-2.5b-f16.gguf"));
+                let out = output
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| PathBuf::from("gguf/toto-2.5b-f16.gguf"));
                 let canonical = zsfm_hub::canonical_gguf_path(&model_dir, repo);
                 if canonical.exists() && !redownload {
-                    zsfm_checkpoint::recast(&canonical, &out, dtype_ty).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                    zsfm_checkpoint::recast(&canonical, &out, dtype_ty)
+                        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                     return Ok(());
                 }
-                let files = zsfm_hub::download_model(repo, token.as_deref(), &model_dir).await.map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                let s = std::fs::read_to_string(&files.config_json).map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                let cfg = zsfm_toto::config::TotoConfig::from_json(&s).map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                zsfm_toto::convert::convert(repo, &files, &cfg, &zsfm_toto::convert::ConvertOptions { output_dtype: zsfm_gguf::GGMLType::F32 }, &canonical).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                let files = zsfm_hub::download_model(repo, token.as_deref(), &model_dir)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                let s = std::fs::read_to_string(&files.config_json)
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                let cfg = zsfm_toto::config::TotoConfig::from_json(&s)
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                zsfm_toto::convert::convert(
+                    repo,
+                    &files,
+                    &cfg,
+                    &zsfm_toto::convert::ConvertOptions {
+                        output_dtype: zsfm_gguf::GGMLType::F32,
+                    },
+                    &canonical,
+                )
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 files.cleanup_weights();
-                zsfm_checkpoint::recast(&canonical, &out, dtype_ty).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                zsfm_checkpoint::recast(&canonical, &out, dtype_ty)
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 Ok::<(), anyhow::Error>(())
             }
             "chronos" => {
                 let repo = "amazon/chronos-2";
-                let out = output.map(PathBuf::from).unwrap_or_else(|| PathBuf::from("gguf/chronos-f16.gguf"));
+                let out = output
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| PathBuf::from("gguf/chronos-f16.gguf"));
                 let canonical = zsfm_hub::canonical_gguf_path(&model_dir, repo);
                 if canonical.exists() && !redownload {
-                    zsfm_checkpoint::recast(&canonical, &out, dtype_ty).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                    zsfm_checkpoint::recast(&canonical, &out, dtype_ty)
+                        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                     return Ok(());
                 }
-                let files = zsfm_hub::download_model(repo, token.as_deref(), &model_dir).await.map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                let s = std::fs::read_to_string(&files.config_json).map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                let cfg = zsfm_chronos::config::Chronos2Config::from_json(&s).map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                zsfm_chronos::convert::convert(repo, &files, &cfg, &zsfm_chronos::convert::ConvertOptions { output_dtype: zsfm_gguf::GGMLType::F32 }, &canonical).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                let files = zsfm_hub::download_model(repo, token.as_deref(), &model_dir)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                let s = std::fs::read_to_string(&files.config_json)
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                let cfg = zsfm_chronos::config::Chronos2Config::from_json(&s)
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                zsfm_chronos::convert::convert(
+                    repo,
+                    &files,
+                    &cfg,
+                    &zsfm_chronos::convert::ConvertOptions {
+                        output_dtype: zsfm_gguf::GGMLType::F32,
+                    },
+                    &canonical,
+                )
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 files.cleanup_weights();
-                zsfm_checkpoint::recast(&canonical, &out, dtype_ty).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                zsfm_checkpoint::recast(&canonical, &out, dtype_ty)
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 Ok(())
             }
             "timesfm" => {
                 let repo = "google/timesfm-2.5-200m-pytorch";
-                let out = output.map(PathBuf::from).unwrap_or_else(|| PathBuf::from("gguf/timesfm.gguf"));
+                let out = output
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| PathBuf::from("gguf/timesfm.gguf"));
                 let canonical = zsfm_hub::canonical_gguf_path(&model_dir, repo);
                 if canonical.exists() && !redownload {
-                    zsfm_checkpoint::recast(&canonical, &out, dtype_ty).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                    zsfm_checkpoint::recast(&canonical, &out, dtype_ty)
+                        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                     return Ok(());
                 }
-                let files = zsfm_hub::download_model(repo, token.as_deref(), &model_dir).await.map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                let files = zsfm_hub::download_model(repo, token.as_deref(), &model_dir)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 let cfg = zsfm_timesfm::config::TimesFMConfig::new();
-                zsfm_timesfm::convert::convert(repo, &files, &cfg, &zsfm_timesfm::convert::ConvertOptions { output_dtype: zsfm_gguf::GGMLType::F32 }, &canonical).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                zsfm_timesfm::convert::convert(
+                    repo,
+                    &files,
+                    &cfg,
+                    &zsfm_timesfm::convert::ConvertOptions {
+                        output_dtype: zsfm_gguf::GGMLType::F32,
+                    },
+                    &canonical,
+                )
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 files.cleanup_weights();
-                zsfm_checkpoint::recast(&canonical, &out, dtype_ty).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                zsfm_checkpoint::recast(&canonical, &out, dtype_ty)
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 Ok(())
             }
             "sundial" => {
                 let repo = "thuml/sundial-base-128m";
-                let out = output.map(PathBuf::from).unwrap_or_else(|| PathBuf::from("gguf/sundial-f16.gguf"));
+                let out = output
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| PathBuf::from("gguf/sundial-f16.gguf"));
                 let canonical = zsfm_hub::canonical_gguf_path(&model_dir, repo);
                 if canonical.exists() && !redownload {
-                    zsfm_checkpoint::recast(&canonical, &out, dtype_ty).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                    zsfm_checkpoint::recast(&canonical, &out, dtype_ty)
+                        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                     return Ok(());
                 }
-                let files = zsfm_hub::download_model(repo, token.as_deref(), &model_dir).await.map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                let s = std::fs::read_to_string(&files.config_json).map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                let cfg: zsfm_sundial::config::SundialConfig = serde_json::from_str(&s).map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                zsfm_sundial::convert::convert(repo, &files, &cfg, &zsfm_sundial::convert::ConvertOptions { output_dtype: zsfm_gguf::GGMLType::F32 }, &canonical).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                let files = zsfm_hub::download_model(repo, token.as_deref(), &model_dir)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                let s = std::fs::read_to_string(&files.config_json)
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                let cfg: zsfm_sundial::config::SundialConfig =
+                    serde_json::from_str(&s).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                zsfm_sundial::convert::convert(
+                    repo,
+                    &files,
+                    &cfg,
+                    &zsfm_sundial::convert::ConvertOptions {
+                        output_dtype: zsfm_gguf::GGMLType::F32,
+                    },
+                    &canonical,
+                )
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 files.cleanup_weights();
-                zsfm_checkpoint::recast(&canonical, &out, dtype_ty).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                zsfm_checkpoint::recast(&canonical, &out, dtype_ty)
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 Ok(())
             }
             "ttm" => {
                 let repo = "ibm-granite/granite-timeseries-ttm-r2";
-                let out = output.map(PathBuf::from).unwrap_or_else(|| PathBuf::from("gguf/ttm-f32.gguf"));
+                let out = output
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| PathBuf::from("gguf/ttm-f32.gguf"));
                 let canonical = zsfm_hub::canonical_gguf_path(&model_dir, repo);
                 if canonical.exists() && !redownload {
-                    zsfm_checkpoint::recast(&canonical, &out, dtype_ty).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                    zsfm_checkpoint::recast(&canonical, &out, dtype_ty)
+                        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                     return Ok(());
                 }
-                let files = zsfm_hub::download_model(repo, token.as_deref(), &model_dir).await.map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                let s = std::fs::read_to_string(&files.config_json).map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                let cfg = zsfm_ttm::config::TtmConfig::from_json(&s).map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                zsfm_ttm::convert::convert(repo, &files, &cfg, &zsfm_ttm::convert::ConvertOptions { output_dtype: zsfm_gguf::GGMLType::F32 }, &canonical).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                let files = zsfm_hub::download_model(repo, token.as_deref(), &model_dir)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                let s = std::fs::read_to_string(&files.config_json)
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                let cfg = zsfm_ttm::config::TtmConfig::from_json(&s)
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                zsfm_ttm::convert::convert(
+                    repo,
+                    &files,
+                    &cfg,
+                    &zsfm_ttm::convert::ConvertOptions {
+                        output_dtype: zsfm_gguf::GGMLType::F32,
+                    },
+                    &canonical,
+                )
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 files.cleanup_weights();
-                zsfm_checkpoint::recast(&canonical, &out, dtype_ty).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                zsfm_checkpoint::recast(&canonical, &out, dtype_ty)
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 Ok(())
             }
             "lag_llama" | "lag-llama" => {
                 let repo = "time-series-foundation-models/Lag-Llama";
-                let out = output.map(PathBuf::from).unwrap_or_else(|| PathBuf::from("gguf/lag_llama-f32.gguf"));
+                let out = output
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| PathBuf::from("gguf/lag_llama-f32.gguf"));
                 let canonical = zsfm_hub::canonical_gguf_path(&model_dir, repo);
                 if canonical.exists() && !redownload {
-                    zsfm_checkpoint::recast(&canonical, &out, dtype_ty).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                    zsfm_checkpoint::recast(&canonical, &out, dtype_ty)
+                        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                     return Ok(());
                 }
-                if let Some(p) = canonical.parent() { std::fs::create_dir_all(p).map_err(|e| anyhow::anyhow!(e.to_string()))?; }
-                let ckpt = zsfm_hub::download_file(repo, "lag-llama.ckpt", token.as_deref(), &model_dir).await.map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                if let Some(p) = canonical.parent() {
+                    std::fs::create_dir_all(p).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                }
+                let ckpt =
+                    zsfm_hub::download_file(repo, "lag-llama.ckpt", token.as_deref(), &model_dir)
+                        .await
+                        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 let cfg = zsfm_lag_llama::config::LagLlamaConfig::default_from_ckpt();
-                zsfm_lag_llama::convert::convert(&ckpt, &cfg, &zsfm_lag_llama::convert::ConvertOptions { output_dtype: zsfm_gguf::GGMLType::F32 }, &canonical).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                zsfm_lag_llama::convert::convert(
+                    &ckpt,
+                    &cfg,
+                    &zsfm_lag_llama::convert::ConvertOptions {
+                        output_dtype: zsfm_gguf::GGMLType::F32,
+                    },
+                    &canonical,
+                )
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 let _ = std::fs::remove_file(&ckpt);
-                zsfm_checkpoint::recast(&canonical, &out, dtype_ty).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                zsfm_checkpoint::recast(&canonical, &out, dtype_ty)
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 Ok(())
             }
             "moment" => {
                 let repo = "AutonLab/MOMENT-1-large";
-                let out = output.map(PathBuf::from).unwrap_or_else(|| PathBuf::from("gguf/moment-f32.gguf"));
+                let out = output
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| PathBuf::from("gguf/moment-f32.gguf"));
                 let canonical = zsfm_hub::canonical_gguf_path(&model_dir, repo);
                 if canonical.exists() && !redownload {
-                    zsfm_checkpoint::recast(&canonical, &out, dtype_ty).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                    zsfm_checkpoint::recast(&canonical, &out, dtype_ty)
+                        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                     return Ok(());
                 }
-                let files = zsfm_hub::download_model(repo, token.as_deref(), &model_dir).await.map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                let files = zsfm_hub::download_model(repo, token.as_deref(), &model_dir)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 let cfg = zsfm_moment::config::MomentConfig::default();
-                zsfm_moment::convert::convert(&files.safetensors_shards, &cfg, &zsfm_moment::convert::ConvertOptions { output_dtype: zsfm_gguf::GGMLType::F32 }, &canonical).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                zsfm_moment::convert::convert(
+                    &files.safetensors_shards,
+                    &cfg,
+                    &zsfm_moment::convert::ConvertOptions {
+                        output_dtype: zsfm_gguf::GGMLType::F32,
+                    },
+                    &canonical,
+                )
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 files.cleanup_weights();
-                zsfm_checkpoint::recast(&canonical, &out, dtype_ty).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                zsfm_checkpoint::recast(&canonical, &out, dtype_ty)
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 Ok(())
             }
             "moirai" => {
                 let repo = "Salesforce/moirai-1.0-R-large";
-                let out = output.map(PathBuf::from).unwrap_or_else(|| PathBuf::from("gguf/moirai-f32.gguf"));
+                let out = output
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| PathBuf::from("gguf/moirai-f32.gguf"));
                 let canonical = zsfm_hub::canonical_gguf_path(&model_dir, repo);
                 if canonical.exists() && !redownload {
-                    zsfm_checkpoint::recast(&canonical, &out, dtype_ty).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                    zsfm_checkpoint::recast(&canonical, &out, dtype_ty)
+                        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                     return Ok(());
                 }
-                let files = zsfm_hub::download_model(repo, token.as_deref(), &model_dir).await.map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                let files = zsfm_hub::download_model(repo, token.as_deref(), &model_dir)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 let cfg = zsfm_moirai::config::MoiraiConfig::default();
-                zsfm_moirai::convert::convert(&files.safetensors_shards, &cfg, &zsfm_moirai::convert::ConvertOptions { output_dtype: zsfm_gguf::GGMLType::F32 }, &canonical).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                zsfm_moirai::convert::convert(
+                    &files.safetensors_shards,
+                    &cfg,
+                    &zsfm_moirai::convert::ConvertOptions {
+                        output_dtype: zsfm_gguf::GGMLType::F32,
+                    },
+                    &canonical,
+                )
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 files.cleanup_weights();
-                zsfm_checkpoint::recast(&canonical, &out, dtype_ty).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                zsfm_checkpoint::recast(&canonical, &out, dtype_ty)
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 Ok(())
             }
             "moirai2" | "moirai-2" => {
                 let repo = "Salesforce/moirai-2.0-R-small";
-                let out = output.map(PathBuf::from).unwrap_or_else(|| PathBuf::from("gguf/moirai2-f32.gguf"));
+                let out = output
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| PathBuf::from("gguf/moirai2-f32.gguf"));
                 let canonical = zsfm_hub::canonical_gguf_path(&model_dir, repo);
                 if canonical.exists() && !redownload {
-                    zsfm_checkpoint::recast(&canonical, &out, dtype_ty).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                    zsfm_checkpoint::recast(&canonical, &out, dtype_ty)
+                        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                     return Ok(());
                 }
-                let files = zsfm_hub::download_model(repo, token.as_deref(), &model_dir).await.map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                let files = zsfm_hub::download_model(repo, token.as_deref(), &model_dir)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 let cfg = zsfm_moirai2::config::Moirai2Config::default();
-                zsfm_moirai2::convert::convert(&files.safetensors_shards, &cfg, &zsfm_moirai2::convert::ConvertOptions { output_dtype: zsfm_gguf::GGMLType::F32 }, &canonical).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                zsfm_moirai2::convert::convert(
+                    &files.safetensors_shards,
+                    &cfg,
+                    &zsfm_moirai2::convert::ConvertOptions {
+                        output_dtype: zsfm_gguf::GGMLType::F32,
+                    },
+                    &canonical,
+                )
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 files.cleanup_weights();
-                zsfm_checkpoint::recast(&canonical, &out, dtype_ty).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                zsfm_checkpoint::recast(&canonical, &out, dtype_ty)
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 Ok(())
             }
             "flowstate" | "flowstate-r1" => {
                 let repo = "ibm-granite/granite-timeseries-flowstate-r1";
-                let out = output.map(PathBuf::from).unwrap_or_else(|| PathBuf::from("gguf/flowstate-r1-f16.gguf"));
+                let out = output
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| PathBuf::from("gguf/flowstate-r1-f16.gguf"));
                 let canonical = zsfm_hub::canonical_gguf_path(&model_dir, repo);
                 if canonical.exists() && !redownload {
-                    zsfm_checkpoint::recast(&canonical, &out, dtype_ty).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                    zsfm_checkpoint::recast(&canonical, &out, dtype_ty)
+                        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                     return Ok(());
                 }
-                let files = zsfm_hub::download_model(repo, token.as_deref(), &model_dir).await.map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                let s = std::fs::read_to_string(&files.config_json).map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                let cfg = zsfm_flowstate::config::FlowStateConfig::from_json(&s).map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                zsfm_flowstate::convert::convert(repo, &files, &cfg, &zsfm_flowstate::convert::ConvertOptions { output_dtype: zsfm_gguf::GGMLType::F32 }, &canonical).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                let files = zsfm_hub::download_model(repo, token.as_deref(), &model_dir)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                let s = std::fs::read_to_string(&files.config_json)
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                let cfg = zsfm_flowstate::config::FlowStateConfig::from_json(&s)
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                zsfm_flowstate::convert::convert(
+                    repo,
+                    &files,
+                    &cfg,
+                    &zsfm_flowstate::convert::ConvertOptions {
+                        output_dtype: zsfm_gguf::GGMLType::F32,
+                    },
+                    &canonical,
+                )
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 files.cleanup_weights();
-                zsfm_checkpoint::recast(&canonical, &out, dtype_ty).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                zsfm_checkpoint::recast(&canonical, &out, dtype_ty)
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 Ok(())
             }
             "tirex" => {
                 let repo = "NX-AI/TiRex";
-                let out = output.map(PathBuf::from).unwrap_or_else(|| PathBuf::from("gguf/tirex-f32.gguf"));
+                let out = output
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| PathBuf::from("gguf/tirex-f32.gguf"));
                 let canonical = zsfm_hub::canonical_gguf_path(&model_dir, repo);
                 if canonical.exists() && !redownload {
-                    zsfm_checkpoint::recast(&canonical, &out, dtype_ty).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                    zsfm_checkpoint::recast(&canonical, &out, dtype_ty)
+                        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                     return Ok(());
                 }
-                if let Some(p) = canonical.parent() { std::fs::create_dir_all(p).map_err(|e| anyhow::anyhow!(e.to_string()))?; }
-                let ckpt = zsfm_hub::download_file(repo, "model.ckpt", token.as_deref(), &model_dir).await.map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                if let Some(p) = canonical.parent() {
+                    std::fs::create_dir_all(p).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                }
+                let ckpt =
+                    zsfm_hub::download_file(repo, "model.ckpt", token.as_deref(), &model_dir)
+                        .await
+                        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 let cfg = zsfm_tirex::config::TiRexConfig::default_from_ckpt();
-                zsfm_tirex::convert::convert(&ckpt, &cfg, &zsfm_tirex::convert::ConvertOptions { output_dtype: zsfm_gguf::GGMLType::F32 }, &canonical).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                zsfm_tirex::convert::convert(
+                    &ckpt,
+                    &cfg,
+                    &zsfm_tirex::convert::ConvertOptions {
+                        output_dtype: zsfm_gguf::GGMLType::F32,
+                    },
+                    &canonical,
+                )
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 let _ = std::fs::remove_file(&ckpt);
-                zsfm_checkpoint::recast(&canonical, &out, dtype_ty).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                zsfm_checkpoint::recast(&canonical, &out, dtype_ty)
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 Ok(())
             }
             "mitra" => {
                 let task_str = task.as_deref().unwrap_or("classification");
-                let repo = if task_str == "regression" { "autogluon/mitra-regressor" } else { "autogluon/mitra-classifier" };
+                let repo = if task_str == "regression" {
+                    "autogluon/mitra-regressor"
+                } else {
+                    "autogluon/mitra-classifier"
+                };
                 let variant_dir = model_dir.join(format!("mitra-{task_str}"));
-                let out = output.map(PathBuf::from).unwrap_or_else(|| PathBuf::from(format!("gguf/mitra-{task_str}-{dtype}.gguf")));
+                let out = output.map(PathBuf::from).unwrap_or_else(|| {
+                    PathBuf::from(format!("gguf/mitra-{task_str}-{dtype}.gguf"))
+                });
                 let canonical = zsfm_hub::canonical_gguf_path(&variant_dir, repo);
                 if canonical.exists() && !redownload {
-                    zsfm_checkpoint::recast(&canonical, &out, dtype_ty).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                    zsfm_checkpoint::recast(&canonical, &out, dtype_ty)
+                        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                     return Ok(());
                 }
-                let files = zsfm_hub::download_model(repo, token.as_deref(), &variant_dir).await.map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                let cfg = if task_str == "regression" { zsfm_mitra::config::MitraConfig::regressor() } else { zsfm_mitra::config::MitraConfig::classifier() };
-                let p = files.safetensors_shards.first().ok_or_else(|| anyhow::anyhow!("no shard"))?;
-                zsfm_mitra::convert::convert(std::slice::from_ref(p), &cfg, &zsfm_mitra::convert::ConvertOptions { output_dtype: zsfm_gguf::GGMLType::F32 }, &canonical).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                let files = zsfm_hub::download_model(repo, token.as_deref(), &variant_dir)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                let cfg = if task_str == "regression" {
+                    zsfm_mitra::config::MitraConfig::regressor()
+                } else {
+                    zsfm_mitra::config::MitraConfig::classifier()
+                };
+                let p = files
+                    .safetensors_shards
+                    .first()
+                    .ok_or_else(|| anyhow::anyhow!("no shard"))?;
+                zsfm_mitra::convert::convert(
+                    std::slice::from_ref(p),
+                    &cfg,
+                    &zsfm_mitra::convert::ConvertOptions {
+                        output_dtype: zsfm_gguf::GGMLType::F32,
+                    },
+                    &canonical,
+                )
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 files.cleanup_weights();
-                zsfm_checkpoint::recast(&canonical, &out, dtype_ty).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                zsfm_checkpoint::recast(&canonical, &out, dtype_ty)
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 Ok(())
             }
             "tabdpt" => {
                 let repo = "Layer6/TabDPT";
                 let fname = filename.as_deref().unwrap_or("tabdpt1_2.safetensors");
-                let out = output.map(PathBuf::from).unwrap_or_else(|| PathBuf::from(format!("gguf/tabdpt-{dtype}.gguf")));
+                let out = output
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| PathBuf::from(format!("gguf/tabdpt-{dtype}.gguf")));
                 let canonical = zsfm_hub::canonical_gguf_path(&model_dir, repo);
                 if canonical.exists() && !redownload {
-                    zsfm_checkpoint::recast(&canonical, &out, dtype_ty).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                    zsfm_checkpoint::recast(&canonical, &out, dtype_ty)
+                        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                     return Ok(());
                 }
-                if let Some(p) = canonical.parent() { std::fs::create_dir_all(p).map_err(|e| anyhow::anyhow!(e.to_string()))?; }
-                let p = zsfm_hub::download_file(repo, fname, token.as_deref(), &model_dir).await.map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                if let Some(p) = canonical.parent() {
+                    std::fs::create_dir_all(p).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                }
+                let p = zsfm_hub::download_file(repo, fname, token.as_deref(), &model_dir)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 let cfg = zsfm_tabdpt::config::TabDptConfig::default_v1_2();
-                zsfm_tabdpt::convert::convert(std::slice::from_ref(&p), &cfg, &zsfm_tabdpt::convert::ConvertOptions { output_dtype: zsfm_gguf::GGMLType::F32 }, &canonical).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                zsfm_tabdpt::convert::convert(
+                    std::slice::from_ref(&p),
+                    &cfg,
+                    &zsfm_tabdpt::convert::ConvertOptions {
+                        output_dtype: zsfm_gguf::GGMLType::F32,
+                    },
+                    &canonical,
+                )
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 let _ = std::fs::remove_file(&p);
-                zsfm_checkpoint::recast(&canonical, &out, dtype_ty).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                zsfm_checkpoint::recast(&canonical, &out, dtype_ty)
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 Ok(())
             }
             "tabfm" => {
                 let task_str = task.as_deref().unwrap_or("classification");
                 let repo = "google/tabfm-1.0.0-pytorch";
                 let variant_dir = model_dir.join(format!("tabfm-{task_str}"));
-                let out = output.map(PathBuf::from).unwrap_or_else(|| PathBuf::from(format!("gguf/tabfm-{task_str}-{dtype}.gguf")));
+                let out = output.map(PathBuf::from).unwrap_or_else(|| {
+                    PathBuf::from(format!("gguf/tabfm-{task_str}-{dtype}.gguf"))
+                });
                 let canonical = zsfm_hub::canonical_gguf_path(&variant_dir, repo);
                 if canonical.exists() && !redownload {
-                    zsfm_checkpoint::recast(&canonical, &out, dtype_ty).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                    zsfm_checkpoint::recast(&canonical, &out, dtype_ty)
+                        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                     return Ok(());
                 }
-                let files = zsfm_hub::download_model_prefixed(repo, task_str, token.as_deref(), &variant_dir).await.map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                let s = std::fs::read_to_string(&files.config_json).map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                let cfg = zsfm_tabfm::config::TabFMConfig::from_json(&s).map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                let p = files.safetensors_shards.first().ok_or_else(|| anyhow::anyhow!("no shard"))?;
-                zsfm_tabfm::convert::convert(repo, p, &cfg, &zsfm_tabfm::convert::ConvertOptions { output_dtype: zsfm_gguf::GGMLType::F32 }, &canonical).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                let files = zsfm_hub::download_model_prefixed(
+                    repo,
+                    task_str,
+                    token.as_deref(),
+                    &variant_dir,
+                )
+                .await
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                let s = std::fs::read_to_string(&files.config_json)
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                let cfg = zsfm_tabfm::config::TabFMConfig::from_json(&s)
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                let p = files
+                    .safetensors_shards
+                    .first()
+                    .ok_or_else(|| anyhow::anyhow!("no shard"))?;
+                zsfm_tabfm::convert::convert(
+                    repo,
+                    p,
+                    &cfg,
+                    &zsfm_tabfm::convert::ConvertOptions {
+                        output_dtype: zsfm_gguf::GGMLType::F32,
+                    },
+                    &canonical,
+                )
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 files.cleanup_weights();
-                zsfm_checkpoint::recast(&canonical, &out, dtype_ty).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                zsfm_checkpoint::recast(&canonical, &out, dtype_ty)
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                 Ok(())
             }
-            other => Err(anyhow::anyhow!("unknown model {other:?}; expected one of {}", list_models().join(", ")))
+            "tabicl" => {
+                let repo = "jingang/TabICL";
+                let file_filter = filename.as_deref().unwrap_or("v2");
+                let out = output
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| PathBuf::from(format!("gguf/tabicl-v2-{dtype}.gguf")));
+                let canonical = zsfm_hub::canonical_gguf_path(&model_dir, repo);
+                if canonical.exists() && !redownload {
+                    zsfm_checkpoint::recast(&canonical, &out, dtype_ty)
+                        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                    return Ok(());
+                }
+                let dl = zsfm_hub::download_any_format(
+                    repo,
+                    Some("ckpt"),
+                    Some(file_filter),
+                    "main",
+                    token.as_deref(),
+                    &model_dir.join(repo.replace('/', "__")),
+                )
+                .await
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                let ckpt = zsfm_checkpoint::load_checkpoint(
+                    &dl.checkpoint_files,
+                    &zsfm_checkpoint::LoadOptions::default(),
+                )
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                write_generic_gguf(&ckpt, &canonical, zsfm_gguf::GGMLType::F32, repo)
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                zsfm_checkpoint::recast(&canonical, &out, dtype_ty)
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                Ok(())
+            }
+            "tabpfn" => {
+                let repo = "Prior-Labs/tabpfn_3";
+                let file_filter = filename.as_deref().unwrap_or("classifier");
+                let out = output
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| PathBuf::from(format!("gguf/tabpfn-v3-{dtype}.gguf")));
+                let canonical = zsfm_hub::canonical_gguf_path(&model_dir, repo);
+                if canonical.exists() && !redownload {
+                    zsfm_checkpoint::recast(&canonical, &out, dtype_ty)
+                        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                    return Ok(());
+                }
+                let dl = zsfm_hub::download_any_format(
+                    repo,
+                    Some("ckpt"),
+                    Some(file_filter),
+                    "main",
+                    token.as_deref(),
+                    &model_dir.join(repo.replace('/', "__")),
+                )
+                .await
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                let ckpt = zsfm_checkpoint::load_checkpoint(
+                    &dl.checkpoint_files,
+                    &zsfm_checkpoint::LoadOptions::default(),
+                )
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                write_generic_gguf(&ckpt, &canonical, zsfm_gguf::GGMLType::F32, repo)
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                zsfm_checkpoint::recast(&canonical, &out, dtype_ty)
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                Ok(())
+            }
+            other => Err(anyhow::anyhow!(
+                "unknown model {other:?}; expected one of {}",
+                list_models().join(", ")
+            )),
         }
-    }).map_err(|e: anyhow::Error| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+    })
+    .map_err(|e: anyhow::Error| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
     Ok(())
 }
 
@@ -387,18 +713,36 @@ fn delete(model: &str, model_dir: &str, output: Option<String>) -> PyResult<()> 
         "moment" => ("AutonLab/MOMENT-1-large".into(), None),
         "moirai" => ("Salesforce/moirai-1.0-R-large".into(), None),
         "moirai2" | "moirai-2" => ("Salesforce/moirai-2.0-R-small".into(), None),
-        "flowstate" | "flowstate-r1" => ("ibm-granite/granite-timeseries-flowstate-r1".into(), None),
+        "flowstate" | "flowstate-r1" => {
+            ("ibm-granite/granite-timeseries-flowstate-r1".into(), None)
+        }
         "tirex" => ("NX-AI/TiRex".into(), None),
-        "mitra" | "mitra-classification" => ("autogluon/mitra-classifier".into(), Some("mitra-classification".into())),
-        "mitra-regression" => ("autogluon/mitra-regressor".into(), Some("mitra-regression".into())),
+        "mitra" | "mitra-classification" => (
+            "autogluon/mitra-classifier".into(),
+            Some("mitra-classification".into()),
+        ),
+        "mitra-regression" => (
+            "autogluon/mitra-regressor".into(),
+            Some("mitra-regression".into()),
+        ),
         "tabdpt" => ("Layer6/TabDPT".into(), None),
         "tabicl" => ("jingang/TabICL".into(), None),
         "tabpfn" => ("Prior-Labs/tabpfn_3".into(), None),
-        "tabfm" | "tabfm-classification" => ("google/tabfm-1.0.0-pytorch".into(), Some("tabfm-classification".into())),
-        "tabfm-regression" => ("google/tabfm-1.0.0-pytorch".into(), Some("tabfm-regression".into())),
+        "tabfm" | "tabfm-classification" => (
+            "google/tabfm-1.0.0-pytorch".into(),
+            Some("tabfm-classification".into()),
+        ),
+        "tabfm-regression" => (
+            "google/tabfm-1.0.0-pytorch".into(),
+            Some("tabfm-regression".into()),
+        ),
         // also accept raw repo ids
         _ if model.contains('/') => (model.to_string(), None),
-        _ => return Err(pyo3::exceptions::PyValueError::new_err(format!("unknown model {model:?}"))),
+        _ => {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "unknown model {model:?}"
+            )))
+        }
     };
     let model_dir = PathBuf::from(model_dir);
     let canonical = if let Some(v) = variant_dir {
@@ -408,7 +752,8 @@ fn delete(model: &str, model_dir: &str, output: Option<String>) -> PyResult<()> 
         zsfm_hub::canonical_gguf_path(&model_dir, &repo)
     };
     let out = output.map(PathBuf::from);
-    delete_cached_model(&canonical, out.as_deref()).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+    delete_cached_model(&canonical, out.as_deref())
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
     Ok(())
 }
 
@@ -429,17 +774,26 @@ struct TotoModel {
 impl TotoModel {
     #[new]
     #[pyo3(signature = (gguf, config=None, context_length=None, use_f64=false))]
-    fn new(gguf: String, config: Option<String>, context_length: Option<usize>, use_f64: bool) -> PyResult<Self> {
+    fn new(
+        gguf: String,
+        config: Option<String>,
+        context_length: Option<usize>,
+        use_f64: bool,
+    ) -> PyResult<Self> {
         let gguf_path = PathBuf::from(&gguf);
         let cfg_path = config.unwrap_or_else(|| "models/Datadog__Toto-2.0-2.5B/config.json".into());
-        let s = std::fs::read_to_string(&cfg_path).map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("{cfg_path}: {e}")))?;
-        let v: serde_json::Value = serde_json::from_str(&s).map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let s = std::fs::read_to_string(&cfg_path)
+            .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("{cfg_path}: {e}")))?;
+        let v: serde_json::Value = serde_json::from_str(&s)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
         let max_ctx = context_length.unwrap_or(4096);
         let inner = RustTotoModel::builder(&gguf_path)
             .config_json(&v)
             .with_compute_f64(use_f64)
             .build()
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("load Toto {gguf}: {e}")))?;
+            .map_err(|e| {
+                pyo3::exceptions::PyRuntimeError::new_err(format!("load Toto {gguf}: {e}"))
+            })?;
         // Store max_ctx via a wrapper? For now keep simple: the Rust model already encodes patch_size; we trim in forecast.
         let _ = max_ctx;
         Ok(Self { inner, _gguf: gguf })
@@ -449,7 +803,10 @@ impl TotoModel {
     fn forecast(&self, context: Vec<f32>, horizon: usize) -> PyResult<Vec<f32>> {
         let data = vec![context.clone()];
         let mask = vec![vec![true; context.len()]];
-        let qmat = self.inner.forecast(&data, &mask, horizon).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let qmat = self
+            .inner
+            .forecast(&data, &mask, horizon)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         let median_idx = 4; // q0.5
         Ok(qmat[median_idx][0].clone())
     }
@@ -460,7 +817,10 @@ impl TotoModel {
         for ctx in contexts {
             let data = vec![ctx.clone()];
             let mask = vec![vec![true; ctx.len()]];
-            let qmat = self.inner.forecast(&data, &mask, horizon).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+            let qmat = self
+                .inner
+                .forecast(&data, &mask, horizon)
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
             out.push(qmat[4][0].clone());
         }
         Ok(out)
@@ -471,7 +831,10 @@ impl TotoModel {
     fn forecast_quantiles(&self, context: Vec<f32>, horizon: usize) -> PyResult<Vec<Vec<f32>>> {
         let data = vec![context.clone()];
         let mask = vec![vec![true; context.len()]];
-        let qmat = self.inner.forecast(&data, &mask, horizon).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let qmat = self
+            .inner
+            .forecast(&data, &mask, horizon)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         Ok(qmat.into_iter().map(|q| q[0].clone()).collect())
     }
 
@@ -483,17 +846,24 @@ impl TotoModel {
 
 use zsfm_timesfm::infer::TimesFMModel as RustTimesFmModel;
 #[pyclass]
-struct TimesFmModel { inner: RustTimesFmModel }
+struct TimesFmModel {
+    inner: RustTimesFmModel,
+}
 #[pymethods]
 impl TimesFmModel {
     #[new]
     fn new(gguf: String) -> PyResult<Self> {
         let p = PathBuf::from(&gguf);
-        let inner = RustTimesFmModel::load(&p).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("load TimesFM {gguf}: {e}")))?;
+        let inner = RustTimesFmModel::load(&p).map_err(|e| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!("load TimesFM {gguf}: {e}"))
+        })?;
         Ok(Self { inner })
     }
     fn forecast(&self, context: Vec<f32>, horizon: usize) -> PyResult<Vec<f32>> {
-        let out = self.inner.forecast(&context, horizon).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let out = self
+            .inner
+            .forecast(&context, horizon)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         Ok(out.into_iter().next().unwrap_or_default())
     }
 
@@ -501,7 +871,10 @@ impl TimesFmModel {
     /// TimesFM's point forecast (from `forecast()`) is a separate dedicated model output, not
     /// derived from these quantiles.
     fn forecast_quantiles(&self, context: Vec<f32>, horizon: usize) -> PyResult<Vec<Vec<f32>>> {
-        let mut out = self.inner.forecast(&context, horizon).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let mut out = self
+            .inner
+            .forecast(&context, horizon)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         if !out.is_empty() {
             out.remove(0); // drop the dedicated point-forecast row, keep q0.1..q0.9
         }
@@ -516,17 +889,24 @@ impl TimesFmModel {
 
 use zsfm_sundial::infer::SundialModel as RustSundialModel;
 #[pyclass]
-struct SundialModel { inner: RustSundialModel }
+struct SundialModel {
+    inner: RustSundialModel,
+}
 #[pymethods]
 impl SundialModel {
     #[new]
     fn new(gguf: String) -> PyResult<Self> {
         let p = PathBuf::from(&gguf);
-        let inner = RustSundialModel::builder(&p).build().map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("load Sundial {gguf}: {e}")))?;
+        let inner = RustSundialModel::builder(&p).build().map_err(|e| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!("load Sundial {gguf}: {e}"))
+        })?;
         Ok(Self { inner })
     }
     fn forecast(&self, context: Vec<f32>, horizon: usize) -> PyResult<Vec<f32>> {
-        let raw = self.inner.forecast(&context, &candle_core::Device::Cpu).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let raw = self
+            .inner
+            .forecast(&context, &candle_core::Device::Cpu)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         Ok(raw.into_iter().take(horizon).collect())
     }
 }
@@ -547,22 +927,41 @@ impl TtmModel {
     fn new(gguf: String, config: Option<String>) -> PyResult<Self> {
         let gguf_path = PathBuf::from(&gguf);
         let ttm_config = if let Some(cfg_path) = &config {
-            let s = std::fs::read_to_string(cfg_path).map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("read config {cfg_path}: {e}")))?;
-            TtmConfig::from_json(&s).map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?
+            let s = std::fs::read_to_string(cfg_path).map_err(|e| {
+                pyo3::exceptions::PyIOError::new_err(format!("read config {cfg_path}: {e}"))
+            })?;
+            TtmConfig::from_json(&s)
+                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?
         } else {
-            let canonical = PathBuf::from("models/ibm-granite__granite-timeseries-ttm-r2/config.json");
+            let canonical =
+                PathBuf::from("models/ibm-granite__granite-timeseries-ttm-r2/config.json");
             if canonical.exists() {
-                let s = std::fs::read_to_string(&canonical).map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
-                TtmConfig::from_json(&s).map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?
+                let s = std::fs::read_to_string(&canonical)
+                    .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+                TtmConfig::from_json(&s)
+                    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?
             } else {
-                return Err(pyo3::exceptions::PyFileNotFoundError::new_err(format!("config not found at {canonical:?} and no `config` arg given")));
+                return Err(pyo3::exceptions::PyFileNotFoundError::new_err(format!(
+                    "config not found at {canonical:?} and no `config` arg given"
+                )));
             }
         };
-        let inner = RustTtmModel::builder(&gguf_path).config(ttm_config).build().map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("load TTM {gguf}: {e}")))?;
-        Ok(Self { inner, _config_path: config })
+        let inner = RustTtmModel::builder(&gguf_path)
+            .config(ttm_config)
+            .build()
+            .map_err(|e| {
+                pyo3::exceptions::PyRuntimeError::new_err(format!("load TTM {gguf}: {e}"))
+            })?;
+        Ok(Self {
+            inner,
+            _config_path: config,
+        })
     }
     fn forecast(&self, context: Vec<f32>, horizon: usize) -> PyResult<Vec<f32>> {
-        let out = self.inner.forecast(&context).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let out = self
+            .inner
+            .forecast(&context)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         Ok(out.into_iter().take(horizon).collect())
     }
 }
@@ -570,18 +969,25 @@ impl TtmModel {
 use zsfm_lag_llama::config::LagLlamaConfig;
 use zsfm_lag_llama::infer::LagLlamaModel as RustLagLlamaModel;
 #[pyclass]
-struct LagLlamaModel { inner: RustLagLlamaModel }
+struct LagLlamaModel {
+    inner: RustLagLlamaModel,
+}
 #[pymethods]
 impl LagLlamaModel {
     #[new]
     fn new(gguf: String) -> PyResult<Self> {
         let p = PathBuf::from(&gguf);
         let cfg = LagLlamaConfig::default_from_ckpt();
-        let inner = RustLagLlamaModel::load(&p, cfg).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("load LagLlama {gguf}: {e}")))?;
+        let inner = RustLagLlamaModel::load(&p, cfg).map_err(|e| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!("load LagLlama {gguf}: {e}"))
+        })?;
         Ok(Self { inner })
     }
     fn forecast(&self, context: Vec<f32>, horizon: usize) -> PyResult<Vec<f32>> {
-        let out = self.inner.forecast(&context, horizon).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let out = self
+            .inner
+            .forecast(&context, horizon)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         Ok(out)
     }
 }
@@ -589,18 +995,25 @@ impl LagLlamaModel {
 use zsfm_moment::config::MomentConfig;
 use zsfm_moment::infer::MomentModel as RustMomentModel;
 #[pyclass]
-struct MomentModel { inner: RustMomentModel }
+struct MomentModel {
+    inner: RustMomentModel,
+}
 #[pymethods]
 impl MomentModel {
     #[new]
     fn new(gguf: String) -> PyResult<Self> {
         let p = PathBuf::from(&gguf);
         let cfg = MomentConfig::default();
-        let inner = RustMomentModel::load(&p, cfg).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("load Moment {gguf}: {e}")))?;
+        let inner = RustMomentModel::load(&p, cfg).map_err(|e| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!("load Moment {gguf}: {e}"))
+        })?;
         Ok(Self { inner })
     }
     fn forecast(&self, context: Vec<f32>, horizon: usize) -> PyResult<Vec<f32>> {
-        let out = self.inner.forecast(&context, horizon).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let out = self
+            .inner
+            .forecast(&context, horizon)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         Ok(out)
     }
 }
@@ -608,18 +1021,25 @@ impl MomentModel {
 use zsfm_moirai::config::MoiraiConfig;
 use zsfm_moirai::infer::MoiraiModel as RustMoiraiModel;
 #[pyclass]
-struct MoiraiModel { inner: RustMoiraiModel }
+struct MoiraiModel {
+    inner: RustMoiraiModel,
+}
 #[pymethods]
 impl MoiraiModel {
     #[new]
     fn new(gguf: String) -> PyResult<Self> {
         let p = PathBuf::from(&gguf);
         let cfg = MoiraiConfig::default();
-        let inner = RustMoiraiModel::load(&p, cfg).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("load Moirai {gguf}: {e}")))?;
+        let inner = RustMoiraiModel::load(&p, cfg).map_err(|e| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!("load Moirai {gguf}: {e}"))
+        })?;
         Ok(Self { inner })
     }
     fn forecast(&self, context: Vec<f32>, horizon: usize) -> PyResult<Vec<f32>> {
-        let out = self.inner.forecast(&context, horizon).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let out = self
+            .inner
+            .forecast(&context, horizon)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         Ok(out)
     }
 }
@@ -627,18 +1047,25 @@ impl MoiraiModel {
 use zsfm_moirai2::config::Moirai2Config;
 use zsfm_moirai2::infer::Moirai2Model as RustMoirai2Model;
 #[pyclass]
-struct Moirai2Model { inner: RustMoirai2Model }
+struct Moirai2Model {
+    inner: RustMoirai2Model,
+}
 #[pymethods]
 impl Moirai2Model {
     #[new]
     fn new(gguf: String) -> PyResult<Self> {
         let p = PathBuf::from(&gguf);
         let cfg = Moirai2Config::default();
-        let inner = RustMoirai2Model::load(&p, cfg).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("load Moirai2 {gguf}: {e}")))?;
+        let inner = RustMoirai2Model::load(&p, cfg).map_err(|e| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!("load Moirai2 {gguf}: {e}"))
+        })?;
         Ok(Self { inner })
     }
     fn forecast(&self, context: Vec<f32>, horizon: usize) -> PyResult<Vec<f32>> {
-        let out = self.inner.forecast(&context, horizon).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let out = self
+            .inner
+            .forecast(&context, horizon)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         Ok(out)
     }
 }
@@ -646,28 +1073,45 @@ impl Moirai2Model {
 use zsfm_flowstate::config::FlowStateConfig;
 use zsfm_flowstate::infer::FlowStateModel as RustFlowStateModel;
 #[pyclass]
-struct FlowStateModel { inner: RustFlowStateModel }
+struct FlowStateModel {
+    inner: RustFlowStateModel,
+}
 #[pymethods]
 impl FlowStateModel {
     #[new]
     #[pyo3(signature = (gguf, config=None))]
     fn new(gguf: String, config: Option<String>) -> PyResult<Self> {
         let p = PathBuf::from(&gguf);
-        let cfg_path = config.map(PathBuf::from).unwrap_or_else(|| PathBuf::from("models/ibm-granite__granite-timeseries-flowstate-r1/config.json"));
-        let s = std::fs::read_to_string(&cfg_path).map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("read {}: {e}", cfg_path.display())))?;
-        let cfg = FlowStateConfig::from_json(&s).map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-        let inner = RustFlowStateModel::builder(&p).config_from(&cfg).build().map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("load FlowState {gguf}: {e}")))?;
+        let cfg_path = config.map(PathBuf::from).unwrap_or_else(|| {
+            PathBuf::from("models/ibm-granite__granite-timeseries-flowstate-r1/config.json")
+        });
+        let s = std::fs::read_to_string(&cfg_path).map_err(|e| {
+            pyo3::exceptions::PyIOError::new_err(format!("read {}: {e}", cfg_path.display()))
+        })?;
+        let cfg = FlowStateConfig::from_json(&s)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let inner = RustFlowStateModel::builder(&p)
+            .config_from(&cfg)
+            .build()
+            .map_err(|e| {
+                pyo3::exceptions::PyRuntimeError::new_err(format!("load FlowState {gguf}: {e}"))
+            })?;
         Ok(Self { inner })
     }
     fn forecast(&self, context: Vec<f32>, horizon: usize) -> PyResult<Vec<f32>> {
-        let qmat = self.inner.forecast(&context, horizon).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let qmat = self
+            .inner
+            .forecast(&context, horizon)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         let median_idx = self.inner.config.median_index();
         Ok(qmat[median_idx].clone())
     }
 
     /// Full quantile matrix: one row per quantile level (see `quantiles()`), each `horizon` long.
     fn forecast_quantiles(&self, context: Vec<f32>, horizon: usize) -> PyResult<Vec<Vec<f32>>> {
-        self.inner.forecast(&context, horizon).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+        self.inner
+            .forecast(&context, horizon)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
     }
 
     /// The quantile levels each row of `forecast_quantiles()` corresponds to (from config.json).
@@ -679,14 +1123,18 @@ impl FlowStateModel {
 use zsfm_tirex::config::TiRexConfig;
 use zsfm_tirex::infer::TiRexModel as RustTirexModel;
 #[pyclass]
-struct TirexModel { inner: RustTirexModel }
+struct TirexModel {
+    inner: RustTirexModel,
+}
 #[pymethods]
 impl TirexModel {
     #[new]
     fn new(gguf: String) -> PyResult<Self> {
         let p = PathBuf::from(&gguf);
         let cfg = TiRexConfig::default_from_ckpt();
-        let inner = RustTirexModel::load(&p, cfg).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("load TiRex {gguf}: {e}")))?;
+        let inner = RustTirexModel::load(&p, cfg).map_err(|e| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!("load TiRex {gguf}: {e}"))
+        })?;
         Ok(Self { inner })
     }
     /// Returns the median (q0.5) forecast. Despite its old internal name, the second
@@ -694,13 +1142,19 @@ impl TirexModel {
     /// not a separate mean statistic — `zsfm_tirex::infer::TiRexModel::forecast` docs it
     /// explicitly.
     fn forecast(&self, context: Vec<f32>, horizon: usize) -> PyResult<Vec<f32>> {
-        let (_quantiles, median) = self.inner.forecast(&context, horizon).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let (_quantiles, median) = self
+            .inner
+            .forecast(&context, horizon)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         Ok(median)
     }
 
     /// Full quantile matrix: one row per quantile level (see `quantiles()`), each `horizon` long.
     fn forecast_quantiles(&self, context: Vec<f32>, horizon: usize) -> PyResult<Vec<Vec<f32>>> {
-        let (quantiles, _median) = self.inner.forecast(&context, horizon).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let (quantiles, _median) = self
+            .inner
+            .forecast(&context, horizon)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         Ok(quantiles)
     }
 
@@ -714,30 +1168,53 @@ use zsfm_chronos::config::Chronos2Config;
 use zsfm_chronos::infer::ChronosModel as RustChronosModel;
 
 #[pyclass]
-struct ChronosModel { inner: RustChronosModel }
+struct ChronosModel {
+    inner: RustChronosModel,
+}
 #[pymethods]
 impl ChronosModel {
     #[new]
     #[pyo3(signature = (gguf, config=None))]
     fn new(gguf: String, config: Option<String>) -> PyResult<Self> {
         let gguf_path = PathBuf::from(&gguf);
-        let cfg_path = config.map(PathBuf::from).unwrap_or_else(|| PathBuf::from("models/amazon__chronos-2/config.json"));
-        let s = std::fs::read_to_string(&cfg_path).map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("read {}: {e}", cfg_path.display())))?;
-        let cfg = Chronos2Config::from_json(&s).map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-        let inner = RustChronosModel::builder(&gguf_path).config_from(&cfg).build().map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("load Chronos {gguf}: {e}")))?;
+        let cfg_path = config
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("models/amazon__chronos-2/config.json"));
+        let s = std::fs::read_to_string(&cfg_path).map_err(|e| {
+            pyo3::exceptions::PyIOError::new_err(format!("read {}: {e}", cfg_path.display()))
+        })?;
+        let cfg = Chronos2Config::from_json(&s)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let inner = RustChronosModel::builder(&gguf_path)
+            .config_from(&cfg)
+            .build()
+            .map_err(|e| {
+                pyo3::exceptions::PyRuntimeError::new_err(format!("load Chronos {gguf}: {e}"))
+            })?;
         Ok(Self { inner })
     }
     fn forecast(&self, context: Vec<f32>, horizon: usize) -> PyResult<Vec<f32>> {
-        let qmat = self.inner.forecast(&context, horizon).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let qmat = self
+            .inner
+            .forecast(&context, horizon)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         let levels = self.inner.config.quantiles();
-        let median_idx = levels.iter().position(|&q| (q - 0.5).abs() < 1e-6).unwrap_or(levels.len()/2);
+        let median_idx = levels
+            .iter()
+            .position(|&q| (q - 0.5).abs() < 1e-6)
+            .unwrap_or(levels.len() / 2);
         Ok(qmat[median_idx].clone())
     }
     fn forecast_quantiles(&self, context: Vec<f32>, horizon: usize) -> PyResult<Vec<Vec<f32>>> {
-        let qmat = self.inner.forecast(&context, horizon).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let qmat = self
+            .inner
+            .forecast(&context, horizon)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         Ok(qmat)
     }
-    fn quantiles(&self) -> Vec<f32> { self.inner.config.quantiles().to_vec() }
+    fn quantiles(&self) -> Vec<f32> {
+        self.inner.config.quantiles().to_vec()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -747,7 +1224,10 @@ impl ChronosModel {
 use zsfm_mitra::config::MitraConfig;
 use zsfm_mitra::MitraModel as RustMitraModel;
 #[pyclass]
-struct MitraModel { inner: RustMitraModel, is_classifier: bool }
+struct MitraModel {
+    inner: RustMitraModel,
+    is_classifier: bool,
+}
 #[pymethods]
 impl MitraModel {
     #[new]
@@ -757,20 +1237,54 @@ impl MitraModel {
         let cfg = match task {
             "classification" => MitraConfig::classifier(),
             "regression" => MitraConfig::regressor(),
-            _ => return Err(pyo3::exceptions::PyValueError::new_err("task must be 'classification' or 'regression'"))
+            _ => {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "task must be 'classification' or 'regression'",
+                ))
+            }
         };
         let is_classifier = task == "classification";
-        let inner = RustMitraModel::load(&p, cfg).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("load Mitra {gguf}: {e}")))?;
-        Ok(Self { inner, is_classifier })
+        let inner = RustMitraModel::load(&p, cfg).map_err(|e| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!("load Mitra {gguf}: {e}"))
+        })?;
+        Ok(Self {
+            inner,
+            is_classifier,
+        })
     }
-    fn predict_classification(&self, x_support: Vec<Vec<f32>>, y_support: Vec<usize>, x_query: Vec<Vec<f32>>, n_classes: usize) -> PyResult<Vec<Vec<f32>>> {
-        if !self.is_classifier { return Err(pyo3::exceptions::PyValueError::new_err("model was loaded as regressor, not classifier")) }
-        let logits = self.inner.predict_classification(&x_support, &y_support, &x_query, n_classes).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+    fn predict_classification(
+        &self,
+        x_support: Vec<Vec<f32>>,
+        y_support: Vec<usize>,
+        x_query: Vec<Vec<f32>>,
+        n_classes: usize,
+    ) -> PyResult<Vec<Vec<f32>>> {
+        if !self.is_classifier {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "model was loaded as regressor, not classifier",
+            ));
+        }
+        let logits = self
+            .inner
+            .predict_classification(&x_support, &y_support, &x_query, n_classes)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         Ok(logits)
     }
-    fn predict_regression(&self, x_support: Vec<Vec<f32>>, y_support: Vec<f32>, x_query: Vec<Vec<f32>>) -> PyResult<Vec<f32>> {
-        if self.is_classifier { return Err(pyo3::exceptions::PyValueError::new_err("model was loaded as classifier, not regressor")) }
-        let out = self.inner.predict_regression(&x_support, &y_support, &x_query).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+    fn predict_regression(
+        &self,
+        x_support: Vec<Vec<f32>>,
+        y_support: Vec<f32>,
+        x_query: Vec<Vec<f32>>,
+    ) -> PyResult<Vec<f32>> {
+        if self.is_classifier {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "model was loaded as classifier, not regressor",
+            ));
+        }
+        let out = self
+            .inner
+            .predict_regression(&x_support, &y_support, &x_query)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         Ok(out)
     }
 }
@@ -778,22 +1292,43 @@ impl MitraModel {
 use zsfm_tabdpt::config::TabDptConfig;
 use zsfm_tabdpt::TabDptModel as RustTabDptModel;
 #[pyclass]
-struct TabDptModel { inner: RustTabDptModel }
+struct TabDptModel {
+    inner: RustTabDptModel,
+}
 #[pymethods]
 impl TabDptModel {
     #[new]
     fn new(gguf: String) -> PyResult<Self> {
         let p = PathBuf::from(&gguf);
         let cfg = TabDptConfig::default_v1_2();
-        let inner = RustTabDptModel::load(&p, cfg).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("load TabDPT {gguf}: {e}")))?;
+        let inner = RustTabDptModel::load(&p, cfg).map_err(|e| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!("load TabDPT {gguf}: {e}"))
+        })?;
         Ok(Self { inner })
     }
-    fn predict_classification(&self, x_support: Vec<Vec<f32>>, y_support: Vec<usize>, x_query: Vec<Vec<f32>>, n_classes: usize) -> PyResult<Vec<Vec<f32>>> {
-        let out = self.inner.predict_classification(&x_support, &y_support, &x_query, n_classes).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+    fn predict_classification(
+        &self,
+        x_support: Vec<Vec<f32>>,
+        y_support: Vec<usize>,
+        x_query: Vec<Vec<f32>>,
+        n_classes: usize,
+    ) -> PyResult<Vec<Vec<f32>>> {
+        let out = self
+            .inner
+            .predict_classification(&x_support, &y_support, &x_query, n_classes)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         Ok(out)
     }
-    fn predict_regression(&self, x_support: Vec<Vec<f32>>, y_support: Vec<f32>, x_query: Vec<Vec<f32>>) -> PyResult<Vec<f32>> {
-        let out = self.inner.predict_regression(&x_support, &y_support, &x_query).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+    fn predict_regression(
+        &self,
+        x_support: Vec<Vec<f32>>,
+        y_support: Vec<f32>,
+        x_query: Vec<Vec<f32>>,
+    ) -> PyResult<Vec<f32>> {
+        let out = self
+            .inner
+            .predict_regression(&x_support, &y_support, &x_query)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         Ok(out)
     }
 }
@@ -801,18 +1336,31 @@ impl TabDptModel {
 use zsfm_tabicl::config::TabIclConfig;
 use zsfm_tabicl::TabIclModel as RustTabIclModel;
 #[pyclass]
-struct TabIclModel { inner: RustTabIclModel }
+struct TabIclModel {
+    inner: RustTabIclModel,
+}
 #[pymethods]
 impl TabIclModel {
     #[new]
     fn new(gguf: String) -> PyResult<Self> {
         let p = PathBuf::from(&gguf);
         let cfg = TabIclConfig::v2();
-        let inner = RustTabIclModel::load(&p, cfg).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("load TabICL {gguf}: {e}")))?;
+        let inner = RustTabIclModel::load(&p, cfg).map_err(|e| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!("load TabICL {gguf}: {e}"))
+        })?;
         Ok(Self { inner })
     }
-    fn predict_classification(&self, x_support: Vec<Vec<f32>>, y_support: Vec<usize>, x_query: Vec<Vec<f32>>, n_classes: usize) -> PyResult<Vec<Vec<f32>>> {
-        let out = self.inner.predict_classification(&x_support, &y_support, &x_query, n_classes).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+    fn predict_classification(
+        &self,
+        x_support: Vec<Vec<f32>>,
+        y_support: Vec<usize>,
+        x_query: Vec<Vec<f32>>,
+        n_classes: usize,
+    ) -> PyResult<Vec<Vec<f32>>> {
+        let out = self
+            .inner
+            .predict_classification(&x_support, &y_support, &x_query, n_classes)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         Ok(out)
     }
 }
@@ -820,18 +1368,31 @@ impl TabIclModel {
 use zsfm_tabpfn::config::TabPfnConfig;
 use zsfm_tabpfn::TabPfnModel as RustTabPfnModel;
 #[pyclass]
-struct TabPfnModel { inner: RustTabPfnModel }
+struct TabPfnModel {
+    inner: RustTabPfnModel,
+}
 #[pymethods]
 impl TabPfnModel {
     #[new]
     fn new(gguf: String) -> PyResult<Self> {
         let p = PathBuf::from(&gguf);
         let cfg = TabPfnConfig::v3_default();
-        let inner = RustTabPfnModel::load(&p, cfg).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("load TabPFN {gguf}: {e}")))?;
+        let inner = RustTabPfnModel::load(&p, cfg).map_err(|e| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!("load TabPFN {gguf}: {e}"))
+        })?;
         Ok(Self { inner })
     }
-    fn predict_classification(&self, x_support: Vec<Vec<f32>>, y_support: Vec<usize>, x_query: Vec<Vec<f32>>, n_classes: usize) -> PyResult<Vec<Vec<f32>>> {
-        let out = self.inner.predict_classification(&x_support, &y_support, &x_query, n_classes).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+    fn predict_classification(
+        &self,
+        x_support: Vec<Vec<f32>>,
+        y_support: Vec<usize>,
+        x_query: Vec<Vec<f32>>,
+        n_classes: usize,
+    ) -> PyResult<Vec<Vec<f32>>> {
+        let out = self
+            .inner
+            .predict_classification(&x_support, &y_support, &x_query, n_classes)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         Ok(out)
     }
 }
@@ -839,26 +1400,51 @@ impl TabPfnModel {
 use zsfm_tabfm::config::TabFMConfig;
 use zsfm_tabfm::TabFMModel as RustTabFMModel;
 #[pyclass]
-struct TabFmModel { inner: RustTabFMModel, is_classifier: bool }
+struct TabFmModel {
+    inner: RustTabFMModel,
+    is_classifier: bool,
+}
 #[pymethods]
 impl TabFmModel {
     #[new]
     #[pyo3(signature = (gguf, config=None))]
     fn new(gguf: String, config: Option<String>) -> PyResult<Self> {
         let p = PathBuf::from(&gguf);
-        let cfg_path = if let Some(c) = config { PathBuf::from(c) } else {
+        let cfg_path = if let Some(c) = config {
+            PathBuf::from(c)
+        } else {
             // Auto-detect: try classification then regression config
             let cand = PathBuf::from("models/tabfm-classification/google__tabfm-1.0.0-pytorch/classification_config.json");
-            if cand.exists() { cand } else { PathBuf::from("models/tabfm-regression/google__tabfm-1.0.0-pytorch/regression_config.json") }
+            if cand.exists() {
+                cand
+            } else {
+                PathBuf::from(
+                    "models/tabfm-regression/google__tabfm-1.0.0-pytorch/regression_config.json",
+                )
+            }
         };
-        let s = std::fs::read_to_string(&cfg_path).map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("read {}: {e}", cfg_path.display())))?;
-        let cfg = TabFMConfig::from_json(&s).map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let s = std::fs::read_to_string(&cfg_path).map_err(|e| {
+            pyo3::exceptions::PyIOError::new_err(format!("read {}: {e}", cfg_path.display()))
+        })?;
+        let cfg = TabFMConfig::from_json(&s)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
         let is_classifier = cfg.is_classifier;
-        let inner = RustTabFMModel::builder(&p).config_from(&cfg).build().map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("load TabFM {gguf}: {e}")))?;
-        Ok(Self { inner, is_classifier })
+        let inner = RustTabFMModel::builder(&p)
+            .config_from(&cfg)
+            .build()
+            .map_err(|e| {
+                pyo3::exceptions::PyRuntimeError::new_err(format!("load TabFM {gguf}: {e}"))
+            })?;
+        Ok(Self {
+            inner,
+            is_classifier,
+        })
     }
     fn predict(&self, x: Vec<Vec<f32>>, y: Vec<f32>, train_size: usize) -> PyResult<Vec<Vec<f32>>> {
-        let out = self.inner.predict(&x, &y, train_size, None, None).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let out = self
+            .inner
+            .predict(&x, &y, train_size, None, None)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         Ok(out)
     }
 }

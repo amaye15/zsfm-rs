@@ -16,9 +16,9 @@ pub fn map_tensor_name(hf_name: &str) -> Option<String> {
     // Embedding
     match hf_name {
         "embed.embed.weight" => return Some("embed.weight".into()),
-        "embed.embed.bias"   => return Some("embed.bias".into()),
+        "embed.embed.bias" => return Some("embed.bias".into()),
         "decoder.lin.weight" => return Some("decoder.weight".into()),
-        "decoder.lin.bias"   => return Some("decoder.bias".into()),
+        "decoder.lin.bias" => return Some("decoder.bias".into()),
         _ => {}
     }
 
@@ -30,17 +30,17 @@ pub fn map_tensor_name(hf_name: &str) -> Option<String> {
 
     let name = match suffix {
         "ssm.log_Lambda_real" => format!("blk.{n}.ssm.log_lambda_real"),
-        "ssm.Lambda_imag"     => format!("blk.{n}.ssm.lambda_imag"),
-        "ssm.B_tilde_r"       => format!("blk.{n}.ssm.b_r"),
-        "ssm.B_tilde_i"       => format!("blk.{n}.ssm.b_i"),
-        "ssm.C_tilde_r"       => format!("blk.{n}.ssm.c_r"),
-        "ssm.C_tilde_i"       => format!("blk.{n}.ssm.c_i"),
-        "ssm.D"               => format!("blk.{n}.ssm.d"),
-        "ssm.log_Delta"       => format!("blk.{n}.ssm.log_delta"),
-        "out.weight"          => format!("blk.{n}.out.weight"),
-        "out.bias"            => format!("blk.{n}.out.bias"),
-        "norm.weight"         => format!("blk.{n}.norm.weight"),
-        "norm.bias"           => format!("blk.{n}.norm.bias"),
+        "ssm.Lambda_imag" => format!("blk.{n}.ssm.lambda_imag"),
+        "ssm.B_tilde_r" => format!("blk.{n}.ssm.b_r"),
+        "ssm.B_tilde_i" => format!("blk.{n}.ssm.b_i"),
+        "ssm.C_tilde_r" => format!("blk.{n}.ssm.c_r"),
+        "ssm.C_tilde_i" => format!("blk.{n}.ssm.c_i"),
+        "ssm.D" => format!("blk.{n}.ssm.d"),
+        "ssm.log_Delta" => format!("blk.{n}.ssm.log_delta"),
+        "out.weight" => format!("blk.{n}.out.weight"),
+        "out.bias" => format!("blk.{n}.out.bias"),
+        "norm.weight" => format!("blk.{n}.norm.weight"),
+        "norm.bias" => format!("blk.{n}.norm.bias"),
         _ => return None,
     };
     Some(name)
@@ -52,14 +52,26 @@ mod tests {
 
     #[test]
     fn test_embed() {
-        assert_eq!(map_tensor_name("embed.embed.weight"), Some("embed.weight".into()));
-        assert_eq!(map_tensor_name("embed.embed.bias"),   Some("embed.bias".into()));
+        assert_eq!(
+            map_tensor_name("embed.embed.weight"),
+            Some("embed.weight".into())
+        );
+        assert_eq!(
+            map_tensor_name("embed.embed.bias"),
+            Some("embed.bias".into())
+        );
     }
 
     #[test]
     fn test_decoder() {
-        assert_eq!(map_tensor_name("decoder.lin.weight"), Some("decoder.weight".into()));
-        assert_eq!(map_tensor_name("decoder.lin.bias"),   Some("decoder.bias".into()));
+        assert_eq!(
+            map_tensor_name("decoder.lin.weight"),
+            Some("decoder.weight".into())
+        );
+        assert_eq!(
+            map_tensor_name("decoder.lin.bias"),
+            Some("decoder.bias".into())
+        );
     }
 
     #[test]

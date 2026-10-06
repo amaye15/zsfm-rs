@@ -69,14 +69,20 @@ const CLIP_N_SIGMA: f32 = 8.0;
 // GGUF loading
 // ---------------------------------------------------------------------------
 
-fn load_t(content: &gguf_file::Content, reader: &mut (impl Read + Seek), name: &str, device: &Device) -> Result<Tensor> {
+fn load_t(
+    content: &gguf_file::Content,
+    reader: &mut (impl Read + Seek),
+    name: &str,
+    device: &Device,
+) -> Result<Tensor> {
     zsfm_nn::load_tensor(content, reader, name, device, DType::F32)
 }
 
 impl TabDptModel {
     pub fn load(gguf_path: &Path, config: TabDptConfig) -> Result<Self> {
         let device = Device::Cpu;
-        let file = std::fs::File::open(gguf_path).with_context(|| format!("open {}", gguf_path.display()))?;
+        let file = std::fs::File::open(gguf_path)
+            .with_context(|| format!("open {}", gguf_path.display()))?;
         let mut reader = BufReader::with_capacity(zsfm_gguf::READ_BUF_CAPACITY, file);
         let content = gguf_file::Content::read(&mut reader).context("parse GGUF header")?;
 
@@ -165,13 +171,25 @@ impl TabDptModel {
     }
 
     /// Zero-shot regression. Returns predicted values in `y_support`'s original scale.
-    pub fn predict_regression(&self, x_support: &[Vec<f32>], y_support: &[f32], x_query: &[Vec<f32>]) -> Result<Vec<f32>> {
+    pub fn predict_regression(
+        &self,
+        x_support: &[Vec<f32>],
+        y_support: &[f32],
+        x_query: &[Vec<f32>],
+    ) -> Result<Vec<f32>> {
         let (x_s, x_q) = preprocess_x_outer(x_support, x_query, self.config.max_num_features);
 
         let mean_y: f64 = y_support.iter().map(|&v| v as f64).sum::<f64>() / y_support.len() as f64;
-        let var_y: f64 = y_support.iter().map(|&v| (v as f64 - mean_y).powi(2)).sum::<f64>() / (y_support.len() - 1) as f64;
+        let var_y: f64 = y_support
+            .iter()
+            .map(|&v| (v as f64 - mean_y).powi(2))
+            .sum::<f64>()
+            / (y_support.len() - 1) as f64;
         let std_y = var_y.sqrt() + 1e-6;
-        let y_s: Vec<f32> = y_support.iter().map(|&v| ((v as f64 - mean_y) / std_y) as f32).collect();
+        let y_s: Vec<f32> = y_support
+            .iter()
+            .map(|&v| ((v as f64 - mean_y) / std_y) as f32)
+            .collect();
 
         let out = self.forward(&x_s, &y_s, &x_q)?;
         let n_q = x_query.len();
@@ -182,7 +200,9 @@ impl TabDptModel {
         let bin_lo = self.config.regression_bin_min;
         let bin_hi = self.config.regression_bin_max;
         let bin_width = (bin_hi - bin_lo) / n_bins as f32;
-        let bin_centers: Vec<f32> = (0..n_bins).map(|i| bin_lo + (i as f32 + 0.5) * bin_width).collect();
+        let bin_centers: Vec<f32> = (0..n_bins)
+            .map(|i| bin_lo + (i as f32 + 0.5) * bin_width)
+            .collect();
 
         let mut result = Vec::with_capacity(n_q);
         for i in 0..n_q {
@@ -198,7 +218,12 @@ impl TabDptModel {
     /// `max_num_features`). `y_support` is already the scalar fed to the model (class index for
     /// classification, z-scored target for regression). Returns `[n_query][max_num_classes +
     /// regression_bin_count]` raw head outputs.
-    fn forward(&self, x_support: &[Vec<f32>], y_support: &[f32], x_query: &[Vec<f32>]) -> Result<Tensor> {
+    fn forward(
+        &self,
+        x_support: &[Vec<f32>],
+        y_support: &[f32],
+        x_query: &[Vec<f32>],
+    ) -> Result<Tensor> {
         let n_s = x_support.len();
         let n_q = x_query.len();
         let n_feat = self.config.max_num_features;
@@ -228,7 +253,11 @@ impl TabDptModel {
         let mut src = Tensor::cat(&[&self.thinking_embed, &x_enc], 0)?; // (n_think+T, dim)
 
         let y_support_t = Tensor::from_vec(y_support.to_vec(), (n_s, 1), &self.device)?;
-        let zeros_think_emb = Tensor::zeros((n_think, self.config.y_encoder_dim), DType::F32, &self.device)?;
+        let zeros_think_emb = Tensor::zeros(
+            (n_think, self.config.y_encoder_dim),
+            DType::F32,
+            &self.device,
+        )?;
 
         let kappa = self.config.kappa();
         let beta = attention_beta(kappa, ctx_len, self.config.base_len, self.config.max_len);
@@ -253,7 +282,14 @@ impl TabDptModel {
 
 /// One `TransformerEncoderLayer`: attn_norm -> gated RMSNorm'd attention (context-only K/V,
 /// all-position Q) -> residual -> ff_norm -> SwiGLU -> residual.
-fn layer_forward(src: &Tensor, y_emb: &Tensor, ctx_len: usize, blk: &BlockW, n_heads: usize, beta: f64) -> Result<Tensor> {
+fn layer_forward(
+    src: &Tensor,
+    y_emb: &Tensor,
+    ctx_len: usize,
+    blk: &BlockW,
+    n_heads: usize,
+    beta: f64,
+) -> Result<Tensor> {
     let dim = src.dim(1)?;
     let head_dim = dim / n_heads;
     let l = src.dim(0)?;
@@ -267,9 +303,18 @@ fn layer_forward(src: &Tensor, y_emb: &Tensor, ctx_len: usize, blk: &BlockW, n_h
     let v_in = Tensor::cat(&[&h_ctx, y_emb], 1)?; // (ctx_len, dim + y_encoder_dim)
     let v = zsfm_nn::linear_nobias(&v_in, &blk.v_proj_w)?; // (ctx_len, dim)
 
-    let q = q.reshape((l, n_heads, head_dim))?.permute((1, 0, 2))?.contiguous()?; // (h, L, hd)
-    let k = k.reshape((ctx_len, n_heads, head_dim))?.permute((1, 0, 2))?.contiguous()?;
-    let v = v.reshape((ctx_len, n_heads, head_dim))?.permute((1, 0, 2))?.contiguous()?;
+    let q = q
+        .reshape((l, n_heads, head_dim))?
+        .permute((1, 0, 2))?
+        .contiguous()?; // (h, L, hd)
+    let k = k
+        .reshape((ctx_len, n_heads, head_dim))?
+        .permute((1, 0, 2))?
+        .contiguous()?;
+    let v = v
+        .reshape((ctx_len, n_heads, head_dim))?
+        .permute((1, 0, 2))?
+        .contiguous()?;
 
     let q = zsfm_nn::rms_norm(&q, Some(&blk.q_norm_w), RMS_EPS)?;
     let k = zsfm_nn::rms_norm(&k, Some(&blk.k_norm_w), RMS_EPS)?;
@@ -309,11 +354,7 @@ fn attention_beta(kappa: Option<f64>, ctx_len: usize, base_len: usize, max_len: 
 }
 
 fn layer_norm_no_affine(x: &Tensor, eps: f64) -> Result<Tensor> {
-    let mean = x.mean_keepdim(D::Minus1)?;
-    let centered = x.broadcast_sub(&mean)?;
-    let var = centered.sqr()?.mean_keepdim(D::Minus1)?;
-    let std = (var + eps)?.sqrt()?;
-    Ok(centered.broadcast_div(&std)?)
+    zsfm_nn::layer_norm_no_affine(x, eps)
 }
 
 fn log_softmax(logits: &[f32]) -> Vec<f32> {
@@ -323,10 +364,7 @@ fn log_softmax(logits: &[f32]) -> Vec<f32> {
 }
 
 fn softmax(logits: &[f32]) -> Vec<f32> {
-    let max = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-    let exps: Vec<f32> = logits.iter().map(|&v| (v - max).exp()).collect();
-    let sum: f32 = exps.iter().sum();
-    exps.into_iter().map(|v| v / sum).collect()
+    zsfm_nn::softmax_host(logits)
 }
 
 // ---------------------------------------------------------------------------
@@ -334,7 +372,11 @@ fn softmax(logits: &[f32]) -> Vec<f32> {
 // then zero-padded to `max_num_features`)
 // ---------------------------------------------------------------------------
 
-fn preprocess_x_outer(x_support: &[Vec<f32>], x_query: &[Vec<f32>], max_features: usize) -> (Vec<Vec<f32>>, Vec<Vec<f32>>) {
+fn preprocess_x_outer(
+    x_support: &[Vec<f32>],
+    x_query: &[Vec<f32>],
+    max_features: usize,
+) -> (Vec<Vec<f32>>, Vec<Vec<f32>>) {
     let n_feat = x_support[0].len();
 
     let mut impute_mean = vec![0f32; n_feat];
@@ -347,10 +389,17 @@ fn preprocess_x_outer(x_support: &[Vec<f32>], x_query: &[Vec<f32>], max_features
                 count += 1;
             }
         }
-        impute_mean[f] = if count > 0 { (sum / count as f64) as f32 } else { 0.0 };
+        impute_mean[f] = if count > 0 {
+            (sum / count as f64) as f32
+        } else {
+            0.0
+        };
     }
     let impute = |row: &[f32]| -> Vec<f32> {
-        row.iter().enumerate().map(|(f, &v)| if v.is_nan() { impute_mean[f] } else { v }).collect()
+        row.iter()
+            .enumerate()
+            .map(|(f, &v)| if v.is_nan() { impute_mean[f] } else { v })
+            .collect()
     };
     let support_imputed: Vec<Vec<f32>> = x_support.iter().map(|r| impute(r)).collect();
     let query_imputed: Vec<Vec<f32>> = x_query.iter().map(|r| impute(r)).collect();
@@ -361,7 +410,11 @@ fn preprocess_x_outer(x_support: &[Vec<f32>], x_query: &[Vec<f32>], max_features
     let mut scaler_std = vec![0f32; n_feat];
     for f in 0..n_feat {
         let mean: f64 = support_imputed.iter().map(|r| r[f] as f64).sum::<f64>() / n_s as f64;
-        let var: f64 = support_imputed.iter().map(|r| (r[f] as f64 - mean).powi(2)).sum::<f64>() / n_s as f64;
+        let var: f64 = support_imputed
+            .iter()
+            .map(|r| (r[f] as f64 - mean).powi(2))
+            .sum::<f64>()
+            / n_s as f64;
         scaler_mean[f] = mean as f32;
         // sklearn StandardScaler: zero-variance columns get scale=1 (no-op) instead of divide-by-zero.
         scaler_std[f] = if var == 0.0 { 1.0 } else { var.sqrt() as f32 };
@@ -379,7 +432,10 @@ fn preprocess_x_outer(x_support: &[Vec<f32>], x_query: &[Vec<f32>], max_features
             .collect()
     };
 
-    (scale_and_pad(&support_imputed), scale_and_pad(&query_imputed))
+    (
+        scale_and_pad(&support_imputed),
+        scale_and_pad(&query_imputed),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -387,9 +443,18 @@ fn preprocess_x_outer(x_support: &[Vec<f32>], x_query: &[Vec<f32>], max_features
 // context (first `n_ctx` rows), applied to all rows, per feature column.
 // ---------------------------------------------------------------------------
 
-fn clip_outliers(mut rows: Vec<Vec<f32>>, n_ctx: usize, n_feat: usize, n_sigma: f32) -> Vec<Vec<f32>> {
+fn clip_outliers(
+    mut rows: Vec<Vec<f32>>,
+    n_ctx: usize,
+    n_feat: usize,
+    n_sigma: f32,
+) -> Vec<Vec<f32>> {
     for f in 0..n_feat {
-        let ctx_vals: Vec<f32> = rows[..n_ctx].iter().map(|r| r[f]).filter(|v| !v.is_nan()).collect();
+        let ctx_vals: Vec<f32> = rows[..n_ctx]
+            .iter()
+            .map(|r| r[f])
+            .filter(|v| !v.is_nan())
+            .collect();
         if ctx_vals.is_empty() {
             continue;
         }
@@ -400,7 +465,11 @@ fn clip_outliers(mut rows: Vec<Vec<f32>>, n_ctx: usize, n_feat: usize, n_sigma: 
         let mean = ctx_vals.iter().sum::<f32>() / ctx_vals.len() as f32;
         let std1 = population_std(&ctx_vals, mean);
         let cutoff1 = n_sigma * std1;
-        let refined: Vec<f32> = ctx_vals.iter().copied().filter(|&v| (v - mean).abs() <= cutoff1).collect();
+        let refined: Vec<f32> = ctx_vals
+            .iter()
+            .copied()
+            .filter(|&v| (v - mean).abs() <= cutoff1)
+            .collect();
         let std2 = if refined.len() < 2 {
             std1
         } else {
@@ -416,11 +485,19 @@ fn clip_outliers(mut rows: Vec<Vec<f32>>, n_ctx: usize, n_feat: usize, n_sigma: 
     rows
 }
 
-fn normalize_data(rows: Vec<Vec<f32>>, n_ctx: usize, n_feat: usize) -> (Vec<Vec<f32>>, Vec<f32>, Vec<f32>) {
+fn normalize_data(
+    rows: Vec<Vec<f32>>,
+    n_ctx: usize,
+    n_feat: usize,
+) -> (Vec<Vec<f32>>, Vec<f32>, Vec<f32>) {
     let mut mean = vec![0f32; n_feat];
     let mut std = vec![0f32; n_feat];
     for f in 0..n_feat {
-        let ctx_vals: Vec<f32> = rows[..n_ctx].iter().map(|r| r[f]).filter(|v| !v.is_nan()).collect();
+        let ctx_vals: Vec<f32> = rows[..n_ctx]
+            .iter()
+            .map(|r| r[f])
+            .filter(|v| !v.is_nan())
+            .collect();
         if ctx_vals.is_empty() {
             mean[f] = 0.0;
             std[f] = 1e-6;
@@ -430,8 +507,15 @@ fn normalize_data(rows: Vec<Vec<f32>>, n_ctx: usize, n_feat: usize) -> (Vec<Vec<
         mean[f] = m;
         std[f] = population_std(&ctx_vals, m) + 1e-6;
     }
-    let out: Vec<Vec<f32>> =
-        rows.into_iter().map(|row| row.iter().enumerate().map(|(f, &v)| (v - mean[f]) / std[f]).collect()).collect();
+    let out: Vec<Vec<f32>> = rows
+        .into_iter()
+        .map(|row| {
+            row.iter()
+                .enumerate()
+                .map(|(f, &v)| (v - mean[f]) / std[f])
+                .collect()
+        })
+        .collect();
     (out, mean, std)
 }
 

@@ -20,8 +20,19 @@ mod ttm;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "zsfm", about = "Zero-shot foundation models — GGUF conversion + inference CLI")]
+#[command(
+    name = "zsfm",
+    about = "Zero-shot foundation models — GGUF conversion + inference CLI"
+)]
 struct Cli {
+    /// Silence status lines on stderr (JSON on stdout is never silenced).
+    /// Same as setting `ZSFM_QUIET=1`.
+    #[arg(long, global = true)]
+    quiet: bool,
+    /// Verbose status on stderr (default already logs to stderr; reserved for
+    /// extra per-tensor detail in future).
+    #[arg(long, global = true)]
+    verbose: bool,
     #[command(subcommand)]
     model: ModelCommand,
 }
@@ -125,6 +136,10 @@ enum ModelCommand {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
+    if cli.quiet {
+        // SAFETY: single-threaded startup before any async work spawns threads.
+        unsafe { std::env::set_var("ZSFM_QUIET", "1") };
+    }
     match cli.model {
         ModelCommand::Toto { command } => toto::run(command).await,
         ModelCommand::Tabfm { command } => tabfm::run(command).await,

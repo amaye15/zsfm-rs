@@ -19,12 +19,24 @@ pub struct MitraConfig {
 impl MitraConfig {
     /// `autogluon/mitra-classifier`: dim=512, n_layers=12, n_heads=4, dim_output=10.
     pub fn classifier() -> Self {
-        Self { dim: 512, n_layers: 12, n_heads: 4, dim_output: 10, task: Task::Classification }
+        Self {
+            dim: 512,
+            n_layers: 12,
+            n_heads: 4,
+            dim_output: 10,
+            task: Task::Classification,
+        }
     }
 
     /// `autogluon/mitra-regressor`: dim=512, n_layers=12, n_heads=4, dim_output=1.
     pub fn regressor() -> Self {
-        Self { dim: 512, n_layers: 12, n_heads: 4, dim_output: 1, task: Task::Regression }
+        Self {
+            dim: 512,
+            n_layers: 12,
+            n_heads: 4,
+            dim_output: 1,
+            task: Task::Regression,
+        }
     }
 
     /// Parse the HF `config.json` shipped alongside the weights: `{"dim", "dim_output",
@@ -38,7 +50,10 @@ impl MitraConfig {
             dim: v["dim"].as_u64().unwrap_or(512) as usize,
             n_layers: v["n_layers"].as_u64().unwrap_or(12) as usize,
             n_heads: v["n_heads"].as_u64().unwrap_or(4) as usize,
-            dim_output: v["dim_output"].as_u64().unwrap_or(if task == Task::Regression { 1 } else { 10 }) as usize,
+            dim_output: v["dim_output"]
+                .as_u64()
+                .unwrap_or(if task == Task::Regression { 1 } else { 10 })
+                as usize,
             task,
         })
     }

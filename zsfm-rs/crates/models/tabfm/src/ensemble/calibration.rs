@@ -45,7 +45,10 @@ pub struct PlattParams {
 impl PlattParams {
     /// `p_all`: OOF probabilities `[N][2]`; `y`: true class indices (0 or 1).
     pub fn fit(p_all: &[Vec<f64>], y: &[usize], lambda: f64) -> Self {
-        let z: Vec<f64> = p_all.iter().map(|p| ((p[1] + EPS) / (p[0] + EPS)).ln()).collect();
+        let z: Vec<f64> = p_all
+            .iter()
+            .map(|p| ((p[1] + EPS) / (p[0] + EPS)).ln())
+            .collect();
         let loss = |a: f64, b: f64| -> f64 {
             let n = z.len() as f64;
             let mut nll = 0.0;
@@ -82,7 +85,10 @@ impl VectorScalingParams {
     /// `p_all`: OOF probabilities `[N][K]`; `y`: true class indices.
     pub fn fit(p_all: &[Vec<f64>], y: &[usize], lambda: f64) -> Self {
         let k = p_all[0].len();
-        let z: Vec<Vec<f64>> = p_all.iter().map(|p| p.iter().map(|&v| (v + EPS).ln()).collect()).collect();
+        let z: Vec<Vec<f64>> = p_all
+            .iter()
+            .map(|p| p.iter().map(|&v| (v + EPS).ln()).collect())
+            .collect();
 
         let loss = |w: &[f64], b: &[f64]| -> f64 {
             let n = z.len() as f64;
@@ -92,8 +98,8 @@ impl VectorScalingParams {
                 let probs = softmax(&logits);
                 nll -= (probs[y[i]] + EPS).ln();
             }
-            let reg: f64 =
-                w.iter().map(|&wv| (wv - 1.0).powi(2)).sum::<f64>() + b.iter().map(|&bv| bv.powi(2)).sum::<f64>();
+            let reg: f64 = w.iter().map(|&wv| (wv - 1.0).powi(2)).sum::<f64>()
+                + b.iter().map(|&bv| bv.powi(2)).sum::<f64>();
             nll / n + lambda * reg
         };
 
@@ -130,7 +136,9 @@ impl VectorScalingParams {
 
     pub fn apply(&self, p: &[f64]) -> Vec<f64> {
         let k = p.len();
-        let logits: Vec<f64> = (0..k).map(|c| self.w[c] * (p[c] + EPS).ln() + self.b[c]).collect();
+        let logits: Vec<f64> = (0..k)
+            .map(|c| self.w[c] * (p[c] + EPS).ln() + self.b[c])
+            .collect();
         softmax(&logits)
     }
 }
@@ -155,7 +163,12 @@ mod tests {
         // Overconfident-but-correct predictions should shrink toward the true labels less
         // aggressively than raw probs after Platt scaling; here we just check the fit doesn't
         // diverge and produces valid probabilities.
-        let p_all = vec![vec![0.99, 0.01], vec![0.02, 0.98], vec![0.6, 0.4], vec![0.4, 0.6]];
+        let p_all = vec![
+            vec![0.99, 0.01],
+            vec![0.02, 0.98],
+            vec![0.6, 0.4],
+            vec![0.4, 0.6],
+        ];
         let y = vec![0, 1, 0, 1];
         let params = PlattParams::fit(&p_all, &y, 1e-2);
         for p in &p_all {
@@ -167,7 +180,11 @@ mod tests {
 
     #[test]
     fn test_vector_scaling_valid_probabilities() {
-        let p_all = vec![vec![0.7, 0.2, 0.1], vec![0.1, 0.8, 0.1], vec![0.2, 0.2, 0.6]];
+        let p_all = vec![
+            vec![0.7, 0.2, 0.1],
+            vec![0.1, 0.8, 0.1],
+            vec![0.2, 0.2, 0.6],
+        ];
         let y = vec![0, 1, 2];
         let params = VectorScalingParams::fit(&p_all, &y, 1e-2);
         for p in &p_all {

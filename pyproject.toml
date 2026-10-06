@@ -16,7 +16,7 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-benchmark"]
+dev = ["pytest", "pytest-benchmark", "ruff"]
 
 [build-system]
 requires = ["maturin>=1.4,<2.0"]

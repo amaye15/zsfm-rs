@@ -93,17 +93,40 @@ impl From<&TabFMConfig> for InferConfig {
 }
 
 impl InferConfig {
-    fn col_dim_ff(&self) -> usize { self.embed_dim * self.ff_factor }
-    fn icl_dim(&self) -> usize { self.embed_dim * self.row_num_cls }
-    fn icl_dim_ff(&self) -> usize { self.icl_dim() * self.ff_factor }
-    fn decoder_hidden(&self) -> usize { self.decoder_hidden.unwrap_or(self.icl_dim() * 2) }
-    fn out_dim(&self) -> usize { if self.is_classifier { self.max_classes } else { 1 } }
+    fn col_dim_ff(&self) -> usize {
+        self.embed_dim * self.ff_factor
+    }
+    fn icl_dim(&self) -> usize {
+        self.embed_dim * self.row_num_cls
+    }
+    fn icl_dim_ff(&self) -> usize {
+        self.icl_dim() * self.ff_factor
+    }
+    fn decoder_hidden(&self) -> usize {
+        self.decoder_hidden.unwrap_or(self.icl_dim() * 2)
+    }
+    fn out_dim(&self) -> usize {
+        if self.is_classifier {
+            self.max_classes
+        } else {
+            1
+        }
+    }
 
     // -- builder-style overrides of the few genuinely optional fields ---------
 
-    pub fn with_decoder_hidden(mut self, v: Option<usize>) -> Self { self.decoder_hidden = v; self }
-    pub fn with_norm_eps(mut self, v: f64) -> Self { self.norm_eps = v; self }
-    pub fn with_num_freq(mut self, v: usize) -> Self { self.num_freq = v; self }
+    pub fn with_decoder_hidden(mut self, v: Option<usize>) -> Self {
+        self.decoder_hidden = v;
+        self
+    }
+    pub fn with_norm_eps(mut self, v: f64) -> Self {
+        self.norm_eps = v;
+        self
+    }
+    pub fn with_num_freq(mut self, v: usize) -> Self {
+        self.num_freq = v;
+        self
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -130,7 +153,10 @@ pub struct TabFMModelBuilder {
 
 impl TabFMModelBuilder {
     fn new(gguf_path: impl Into<PathBuf>) -> Self {
-        Self { gguf_path: gguf_path.into(), config: None }
+        Self {
+            gguf_path: gguf_path.into(),
+            config: None,
+        }
     }
 
     /// Use an already-built [`InferConfig`] (e.g. `InferConfig::from(&tc).with_norm_eps(...)`).
@@ -160,10 +186,14 @@ impl TabFMModelBuilder {
 /// Weights for one `MultiheadAttentionBlock` (attention sublayer + SwiGLU FFN sublayer, each
 /// with its own pre/post RMSNorm).
 struct MabWeights {
-    q_w: Tensor, q_b: Tensor,
-    k_w: Tensor, k_b: Tensor,
-    v_w: Tensor, v_b: Tensor,
-    o_w: Tensor, o_b: Tensor,
+    q_w: Tensor,
+    q_b: Tensor,
+    k_w: Tensor,
+    k_b: Tensor,
+    v_w: Tensor,
+    v_b: Tensor,
+    o_w: Tensor,
+    o_b: Tensor,
     q_norm: Tensor,
     k_norm: Tensor,
     per_dim_scale: Tensor,
@@ -171,9 +201,12 @@ struct MabWeights {
     post_attn_norm: Tensor,
     pre_ff_norm: Tensor,
     post_ff_norm: Tensor,
-    ffn_up_w: Tensor, ffn_up_b: Tensor,
-    ffn_gate_w: Tensor, ffn_gate_b: Tensor,
-    ffn_down_w: Tensor, ffn_down_b: Tensor,
+    ffn_up_w: Tensor,
+    ffn_up_b: Tensor,
+    ffn_gate_w: Tensor,
+    ffn_gate_b: Tensor,
+    ffn_down_w: Tensor,
+    ffn_down_b: Tensor,
 }
 
 /// One `InducedSelfAttentionBlock`: shared induced vectors + two `MultiheadAttentionBlock`s.
@@ -185,7 +218,8 @@ struct InducedBlockWeights {
 
 struct ColStackWeights {
     blocks: Vec<InducedBlockWeights>,
-    out_w_w: Tensor, out_w_b: Tensor,
+    out_w_w: Tensor,
+    out_w_b: Tensor,
     out_norm_w: Tensor,
 }
 
@@ -217,8 +251,10 @@ enum YEncoderWeights {
 struct CellWeights {
     fourier_freq: Tensor,     // [feature_group_size, num_freq]
     fourier_freq_cat: Tensor, // [feature_group_size, num_freq]
-    in_linear_w: Tensor, in_linear_b: Tensor,         // [E, 2*num_freq], [E]
-    in_linear_cat_w: Tensor, in_linear_cat_b: Tensor, // [E, 2*num_freq], [E]
+    in_linear_w: Tensor,
+    in_linear_b: Tensor, // [E, 2*num_freq], [E]
+    in_linear_cat_w: Tensor,
+    in_linear_cat_b: Tensor, // [E, 2*num_freq], [E]
     y_embed: YEmbedWeights,
 }
 
@@ -299,10 +335,33 @@ fn load_col_stack(
 ) -> Result<ColStackWeights> {
     let mut blocks = Vec::with_capacity(num_blocks);
     for n in 0..num_blocks {
-        let ind_vectors = load_tensor(content, reader, &format!("{stack}.blk.{n}.ind_vectors"), device)?;
-        let mab1 = load_mab(content, reader, &format!("{stack}.blk.{n}.mab1"), e, ff, device)?;
-        let mab2 = load_mab(content, reader, &format!("{stack}.blk.{n}.mab2"), e, ff, device)?;
-        blocks.push(InducedBlockWeights { ind_vectors, mab1, mab2 });
+        let ind_vectors = load_tensor(
+            content,
+            reader,
+            &format!("{stack}.blk.{n}.ind_vectors"),
+            device,
+        )?;
+        let mab1 = load_mab(
+            content,
+            reader,
+            &format!("{stack}.blk.{n}.mab1"),
+            e,
+            ff,
+            device,
+        )?;
+        let mab2 = load_mab(
+            content,
+            reader,
+            &format!("{stack}.blk.{n}.mab2"),
+            e,
+            ff,
+            device,
+        )?;
+        blocks.push(InducedBlockWeights {
+            ind_vectors,
+            mab1,
+            mab2,
+        });
     }
     Ok(ColStackWeights {
         blocks,
@@ -324,7 +383,14 @@ fn load_row_stack(
     let rope_freqs = load_tensor(content, reader, &format!("{stack}.rope_freqs"), device)?;
     let mut blocks = Vec::with_capacity(num_blocks);
     for n in 0..num_blocks {
-        blocks.push(load_mab(content, reader, &format!("{stack}.blk.{n}"), e, ff, device)?);
+        blocks.push(load_mab(
+            content,
+            reader,
+            &format!("{stack}.blk.{n}"),
+            e,
+            ff,
+            device,
+        )?);
     }
     Ok(RowStackWeights {
         rope_freqs,
@@ -343,7 +409,13 @@ fn load_mlp(
     let mut layers = Vec::with_capacity(dims.len() - 1);
     for i in 0..dims.len() - 1 {
         let out_dim = dims[i + 1];
-        let w = load_weight(content, reader, &format!("{prefix}.mlp.{i}.weight"), out_dim, device)?;
+        let w = load_weight(
+            content,
+            reader,
+            &format!("{prefix}.mlp.{i}.weight"),
+            out_dim,
+            device,
+        )?;
         let b = load_tensor(content, reader, &format!("{prefix}.mlp.{i}.bias"), device)?;
         layers.push((w, b));
     }
@@ -374,35 +446,114 @@ impl TabFMModel {
             fourier_freq_cat: load_tensor(&content, &mut file, "cell.fourier_freq_cat", &device)?,
             in_linear_w: load_weight(&content, &mut file, "cell.in_linear.weight", e, &device)?,
             in_linear_b: load_tensor(&content, &mut file, "cell.in_linear.bias", &device)?,
-            in_linear_cat_w: load_weight(&content, &mut file, "cell.in_linear_cat.weight", e, &device)?,
+            in_linear_cat_w: load_weight(
+                &content,
+                &mut file,
+                "cell.in_linear_cat.weight",
+                e,
+                &device,
+            )?,
             in_linear_cat_b: load_tensor(&content, &mut file, "cell.in_linear_cat.bias", &device)?,
             y_embed: if config.is_classifier {
-                YEmbedWeights::Embedding(load_tensor(&content, &mut file, "cell.y_embed.weight", &device)?)
+                YEmbedWeights::Embedding(load_tensor(
+                    &content,
+                    &mut file,
+                    "cell.y_embed.weight",
+                    &device,
+                )?)
             } else {
-                YEmbedWeights::Mlp(load_mlp(&content, &mut file, "cell.y_embed", &[1, 6, e], &device)?)
+                YEmbedWeights::Mlp(load_mlp(
+                    &content,
+                    &mut file,
+                    "cell.y_embed",
+                    &[1, 6, e],
+                    &device,
+                )?)
             },
         };
 
-        let colenc1 = load_col_stack(&content, &mut file, "colenc1", config.col_num_blocks, e, col_ff, &device)?;
-        let colenc2 = load_col_stack(&content, &mut file, "colenc2", config.col_num_blocks, e, col_ff, &device)?;
-        let rowenc1 = load_row_stack(&content, &mut file, "rowenc1", config.row_num_blocks, e, col_ff, &device)?;
-        let rowenc2 = load_row_stack(&content, &mut file, "rowenc2", config.row_num_blocks, e, col_ff, &device)?;
+        let colenc1 = load_col_stack(
+            &content,
+            &mut file,
+            "colenc1",
+            config.col_num_blocks,
+            e,
+            col_ff,
+            &device,
+        )?;
+        let colenc2 = load_col_stack(
+            &content,
+            &mut file,
+            "colenc2",
+            config.col_num_blocks,
+            e,
+            col_ff,
+            &device,
+        )?;
+        let rowenc1 = load_row_stack(
+            &content,
+            &mut file,
+            "rowenc1",
+            config.row_num_blocks,
+            e,
+            col_ff,
+            &device,
+        )?;
+        let rowenc2 = load_row_stack(
+            &content,
+            &mut file,
+            "rowenc2",
+            config.row_num_blocks,
+            e,
+            col_ff,
+            &device,
+        )?;
 
         let cls_tokens = load_tensor(&content, &mut file, "cls_tokens", &device)?;
 
         let mut icl_blocks = Vec::with_capacity(config.icl_num_blocks);
         for n in 0..config.icl_num_blocks {
-            icl_blocks.push(load_mab(&content, &mut file, &format!("icl.blk.{n}"), icl_dim, icl_ff, &device)?);
+            icl_blocks.push(load_mab(
+                &content,
+                &mut file,
+                &format!("icl.blk.{n}"),
+                icl_dim,
+                icl_ff,
+                &device,
+            )?);
         }
         let y_encoder = if config.is_classifier {
             YEncoderWeights::OneHot {
-                proj_w: load_weight(&content, &mut file, "icl.y_encoder.projection.weight", icl_dim, &device)?,
-                proj_b: load_tensor(&content, &mut file, "icl.y_encoder.projection.bias", &device)?,
+                proj_w: load_weight(
+                    &content,
+                    &mut file,
+                    "icl.y_encoder.projection.weight",
+                    icl_dim,
+                    &device,
+                )?,
+                proj_b: load_tensor(
+                    &content,
+                    &mut file,
+                    "icl.y_encoder.projection.bias",
+                    &device,
+                )?,
             }
         } else {
-            YEncoderWeights::Mlp(load_mlp(&content, &mut file, "icl.y_encoder", &[1, decoder_hidden, icl_dim], &device)?)
+            YEncoderWeights::Mlp(load_mlp(
+                &content,
+                &mut file,
+                "icl.y_encoder",
+                &[1, decoder_hidden, icl_dim],
+                &device,
+            )?)
         };
-        let decoder = load_mlp(&content, &mut file, "icl.decoder", &[icl_dim, decoder_hidden, out_dim], &device)?;
+        let decoder = load_mlp(
+            &content,
+            &mut file,
+            "icl.decoder",
+            &[icl_dim, decoder_hidden, out_dim],
+            &device,
+        )?;
         let icl = IclWeights {
             blocks: icl_blocks,
             out_norm_w: load_tensor(&content, &mut file, "icl.out_norm.weight", &device)?,
@@ -410,7 +561,17 @@ impl TabFMModel {
             decoder,
         };
 
-        Ok(Self { device, config, cell, colenc1, colenc2, rowenc1, rowenc2, cls_tokens, icl })
+        Ok(Self {
+            device,
+            config,
+            cell,
+            colenc1,
+            colenc2,
+            rowenc1,
+            rowenc2,
+            cls_tokens,
+            icl,
+        })
     }
 
     // -----------------------------------------------------------------------
@@ -445,7 +606,9 @@ impl TabFMModel {
         let default_mask = vec![false; h_len];
         let cat_mask = cat_mask.unwrap_or(&default_mask).to_vec();
         let out = self.predict_batch(&[x.to_vec()], &[y.to_vec()], train_size, &[cat_mask], d)?;
-        out.into_iter().next().context("predict_batch returned no batch items")
+        out.into_iter()
+            .next()
+            .context("predict_batch returned no batch items")
     }
 
     /// Runs `B` independent tables through **one** forward pass, sharing the fixed cost of the
@@ -470,14 +633,29 @@ impl TabFMModel {
         anyhow::ensure!(t_len > 0, "x must have at least one row");
         let h_len = x_batch[0][0].len();
         for xb in x_batch {
-            anyhow::ensure!(xb.len() == t_len, "all batch items must have the same row count");
-            anyhow::ensure!(xb.iter().all(|r| r.len() == h_len), "all rows of x must have the same length");
+            anyhow::ensure!(
+                xb.len() == t_len,
+                "all batch items must have the same row count"
+            );
+            anyhow::ensure!(
+                xb.iter().all(|r| r.len() == h_len),
+                "all rows of x must have the same length"
+            );
         }
         anyhow::ensure!(y_batch.len() == b_len, "y_batch must have length B");
-        anyhow::ensure!(y_batch.iter().all(|yb| yb.len() == t_len), "each y must have the same length as x's rows");
+        anyhow::ensure!(
+            y_batch.iter().all(|yb| yb.len() == t_len),
+            "each y must have the same length as x's rows"
+        );
         anyhow::ensure!(train_size <= t_len, "train_size must be <= number of rows");
-        anyhow::ensure!(cat_mask_batch.len() == b_len, "cat_mask_batch must have length B");
-        anyhow::ensure!(cat_mask_batch.iter().all(|m| m.len() == h_len), "cat_mask must have length H");
+        anyhow::ensure!(
+            cat_mask_batch.len() == b_len,
+            "cat_mask_batch must have length B"
+        );
+        anyhow::ensure!(
+            cat_mask_batch.iter().all(|m| m.len() == h_len),
+            "cat_mask must have length H"
+        );
         let d_val = d.unwrap_or(h_len).min(h_len);
 
         // 1. Cell embedding: [B, T, H, E]
@@ -600,20 +778,32 @@ impl TabFMModel {
             }
         }
 
-        Ok(Tensor::from_vec(out, (b_len, t_len, h_len, e), &self.device)?)
+        Ok(Tensor::from_vec(
+            out,
+            (b_len, t_len, h_len, e),
+            &self.device,
+        )?)
     }
 
     // -----------------------------------------------------------------------
     // Stage 2/5: column embedding (SetTransformer, sequence axis = rows)
     // -----------------------------------------------------------------------
 
-    fn col_embedding_forward(&self, x: &Tensor, train_size: usize, w: &ColStackWeights) -> Result<Tensor> {
+    fn col_embedding_forward(
+        &self,
+        x: &Tensor,
+        train_size: usize,
+        w: &ColStackWeights,
+    ) -> Result<Tensor> {
         let cfg = &self.config;
         let (b_len, t_len, hc, e) = x.dims4()?;
         // [B, T, HC, E] -> [B, HC, T, E] -> [(B*HC), T, E] (columns become the extended-batch
         // axis; the same reshape-around-unchanged-attention-code trick as before, now with a
         // real B folded into that batch axis alongside HC).
-        let src = x.permute((0, 2, 1, 3))?.contiguous()?.reshape((b_len * hc, t_len, e))?;
+        let src = x
+            .permute((0, 2, 1, 3))?
+            .contiguous()?
+            .reshape((b_len * hc, t_len, e))?;
 
         let mask = additive_key_mask(t_len, train_size, &self.device)?;
 
@@ -625,15 +815,36 @@ impl TabFMModel {
                 .unsqueeze(0)?
                 .broadcast_as((n, blk.ind_vectors.dim(0)?, blk.ind_vectors.dim(1)?))?
                 .contiguous()?;
-            let hidden = mab_forward(&ind, &cur, &cur, &blk.mab1, cfg.col_nhead, cfg.norm_eps, Some(&mask), None)?;
-            cur = mab_forward(&cur, &hidden, &hidden, &blk.mab2, cfg.col_nhead, cfg.norm_eps, None, None)?;
+            let hidden = mab_forward(
+                &ind,
+                &cur,
+                &cur,
+                &blk.mab1,
+                cfg.col_nhead,
+                cfg.norm_eps,
+                Some(&mask),
+                None,
+            )?;
+            cur = mab_forward(
+                &cur,
+                &hidden,
+                &hidden,
+                &blk.mab2,
+                cfg.col_nhead,
+                cfg.norm_eps,
+                None,
+                None,
+            )?;
         }
 
         let projected = linear(&cur, &w.out_w_w, Some(&w.out_w_b))?;
         let normed = rms_norm(&projected, &w.out_norm_w, cfg.norm_eps)?;
 
         // [(B*HC), T, E] -> [B, HC, T, E] -> [B, T, HC, E]
-        let out = normed.reshape((b_len, hc, t_len, e))?.permute((0, 2, 1, 3))?.contiguous()?;
+        let out = normed
+            .reshape((b_len, hc, t_len, e))?
+            .permute((0, 2, 1, 3))?
+            .contiguous()?;
         Ok(out)
     }
 
@@ -651,13 +862,24 @@ impl TabFMModel {
         let cfg = &self.config;
         let (b_len, t_len, hc, e) = x.dims4()?;
         let mask = additive_key_mask(hc, d_plus_cls, &self.device)?;
-        let rope = TabfmRope { freqs: w.rope_freqs.clone() };
+        let rope = TabfmRope {
+            freqs: w.rope_freqs.clone(),
+        };
 
         // [B, T, HC, E] -> [(B*T), HC, E]: B and T are both "extended batch" here (attention runs
         // over the HC/column axis), and are already contiguous/adjacent leading dims.
         let mut cur = x.reshape((b_len * t_len, hc, e))?;
         for blk in &w.blocks {
-            cur = mab_forward(&cur, &cur, &cur, blk, cfg.row_nhead, cfg.norm_eps, Some(&mask), Some(&rope))?;
+            cur = mab_forward(
+                &cur,
+                &cur,
+                &cur,
+                blk,
+                cfg.row_nhead,
+                cfg.norm_eps,
+                Some(&mask),
+                Some(&rope),
+            )?;
         }
 
         if output_full {
@@ -676,13 +898,20 @@ impl TabFMModel {
     // Stage 7: in-context learning
     // -----------------------------------------------------------------------
 
-    fn icl_forward(&self, reps: &Tensor, y_batch: &[Vec<f32>], train_size: usize) -> Result<Tensor> {
+    fn icl_forward(
+        &self,
+        reps: &Tensor,
+        y_batch: &[Vec<f32>],
+        train_size: usize,
+    ) -> Result<Tensor> {
         let cfg = &self.config;
         let (_b_len, t_len, _icl_dim) = reps.dims3()?; // reps: [B, T, icl_dim] — a real batch now,
-        // unlike before where a synthetic B=1 was faked via unsqueeze/squeeze around this stage.
+                                                       // unlike before where a synthetic B=1 was faked via unsqueeze/squeeze around this stage.
 
         let y_enc = compute_y_encoder(y_batch, &self.icl.y_encoder, cfg.max_classes, &self.device)?; // [B, T, icl_dim]
-        let tm: Vec<f32> = (0..t_len).map(|t| if t < train_size { 1.0 } else { 0.0 }).collect();
+        let tm: Vec<f32> = (0..t_len)
+            .map(|t| if t < train_size { 1.0 } else { 0.0 })
+            .collect();
         let tm_t = Tensor::from_vec(tm, (t_len, 1), &self.device)?;
         let r = (reps + y_enc.broadcast_mul(&tm_t)?)?; // [B, T, icl_dim]
 
@@ -690,7 +919,16 @@ impl TabFMModel {
 
         let mut cur = r;
         for blk in &self.icl.blocks {
-            cur = mab_forward(&cur, &cur, &cur, blk, cfg.icl_nhead, cfg.norm_eps, Some(&mask), None)?;
+            cur = mab_forward(
+                &cur,
+                &cur,
+                &cur,
+                blk,
+                cfg.icl_nhead,
+                cfg.norm_eps,
+                Some(&mask),
+                None,
+            )?;
         }
         let normed = rms_norm(&cur, &self.icl.out_norm_w, cfg.norm_eps)?;
         mlp_forward(&normed, &self.icl.decoder)
@@ -701,7 +939,12 @@ impl TabFMModel {
 // y-embedding / y-encoder helpers
 // ---------------------------------------------------------------------------
 
-fn compute_y_embed(y_batch: &[Vec<f32>], w: &YEmbedWeights, max_classes: usize, device: &Device) -> Result<Tensor> {
+fn compute_y_embed(
+    y_batch: &[Vec<f32>],
+    w: &YEmbedWeights,
+    max_classes: usize,
+    device: &Device,
+) -> Result<Tensor> {
     let b_len = y_batch.len();
     let t = y_batch[0].len();
     match w {
@@ -731,7 +974,12 @@ fn compute_y_embed(y_batch: &[Vec<f32>], w: &YEmbedWeights, max_classes: usize, 
     }
 }
 
-fn compute_y_encoder(y_batch: &[Vec<f32>], w: &YEncoderWeights, max_classes: usize, device: &Device) -> Result<Tensor> {
+fn compute_y_encoder(
+    y_batch: &[Vec<f32>],
+    w: &YEncoderWeights,
+    max_classes: usize,
+    device: &Device,
+) -> Result<Tensor> {
     let b_len = y_batch.len();
     let t = y_batch[0].len();
     match w {
@@ -746,7 +994,11 @@ fn compute_y_encoder(y_batch: &[Vec<f32>], w: &YEncoderWeights, max_classes: usi
                     let valid = yi >= 0 && (yi as usize) < max_classes;
                     let dst = (bb * t + i) * icl_dim;
                     for e in 0..icl_dim {
-                        let w_contrib = if valid { w_flat[e * max_classes + yi as usize] } else { 0.0 };
+                        let w_contrib = if valid {
+                            w_flat[e * max_classes + yi as usize]
+                        } else {
+                            0.0
+                        };
                         out[dst + e] = bias[e] + w_contrib;
                     }
                 }
@@ -826,8 +1078,12 @@ impl TabfmRope {
         let cos = f.cos()?;
         let sin = f.sin()?;
         // repeat_interleave(2, -1): stack + reshape duplicates each element into adjacent pairs.
-        let cos_i = Tensor::stack(&[&cos, &cos], 2)?.reshape((t, hd))?.reshape((1, t, 1, hd))?;
-        let sin_i = Tensor::stack(&[&sin, &sin], 2)?.reshape((t, hd))?.reshape((1, t, 1, hd))?;
+        let cos_i = Tensor::stack(&[&cos, &cos], 2)?
+            .reshape((t, hd))?
+            .reshape((1, t, 1, hd))?;
+        let sin_i = Tensor::stack(&[&sin, &sin], 2)?
+            .reshape((t, hd))?
+            .reshape((1, t, 1, hd))?;
 
         let x_pairs = x.reshape((x.dim(0)?, t, x.dim(2)?, half, 2))?;
         let x1 = x_pairs.narrow(4, 0, 1)?.squeeze(4)?; // even indices
@@ -909,7 +1165,10 @@ fn mha_core(
     }
     let probs = candle_nn::ops::softmax_last_dim(&scores)?;
     let out = probs.matmul(&v)?; // [N, nhead, Sq, hd]
-    let out = out.permute((0, 2, 1, 3))?.contiguous()?.reshape((n, sq, e))?;
+    let out = out
+        .permute((0, 2, 1, 3))?
+        .contiguous()?
+        .reshape((n, sq, e))?;
 
     linear(&out, &w.o_w, Some(&w.o_b))
 }

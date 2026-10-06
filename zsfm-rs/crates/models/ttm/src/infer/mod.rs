@@ -80,7 +80,10 @@ pub struct TtmModelBuilder {
 
 impl TtmModelBuilder {
     fn new(gguf_path: impl Into<PathBuf>) -> Self {
-        Self { gguf_path: gguf_path.into(), config: None }
+        Self {
+            gguf_path: gguf_path.into(),
+            config: None,
+        }
     }
 
     pub fn config(mut self, config: TtmConfig) -> Self {
@@ -120,26 +123,25 @@ fn load_mixer_layer(
     prefix: &str,
     device: &Device,
 ) -> Result<MixerLayer> {
-    let mut t = |s: &str| -> Result<Tensor> {
-        load_t(content, reader, &format!("{prefix}.{s}"), device)
-    };
+    let mut t =
+        |s: &str| -> Result<Tensor> { load_t(content, reader, &format!("{prefix}.{s}"), device) };
     Ok(MixerLayer {
         patch_norm_w: t("patch_norm.weight")?,
         patch_norm_b: t("patch_norm.bias")?,
-        patch_fc1_w:  t("patch_fc1.weight")?,
-        patch_fc1_b:  t("patch_fc1.bias")?,
-        patch_fc2_w:  t("patch_fc2.weight")?,
-        patch_fc2_b:  t("patch_fc2.bias")?,
+        patch_fc1_w: t("patch_fc1.weight")?,
+        patch_fc1_b: t("patch_fc1.bias")?,
+        patch_fc2_w: t("patch_fc2.weight")?,
+        patch_fc2_b: t("patch_fc2.bias")?,
         patch_gate_w: t("patch_gate.weight")?,
         patch_gate_b: t("patch_gate.bias")?,
-        feat_norm_w:  t("feat_norm.weight")?,
-        feat_norm_b:  t("feat_norm.bias")?,
-        feat_fc1_w:   t("feat_fc1.weight")?,
-        feat_fc1_b:   t("feat_fc1.bias")?,
-        feat_fc2_w:   t("feat_fc2.weight")?,
-        feat_fc2_b:   t("feat_fc2.bias")?,
-        feat_gate_w:  t("feat_gate.weight")?,
-        feat_gate_b:  t("feat_gate.bias")?,
+        feat_norm_w: t("feat_norm.weight")?,
+        feat_norm_b: t("feat_norm.bias")?,
+        feat_fc1_w: t("feat_fc1.weight")?,
+        feat_fc1_b: t("feat_fc1.bias")?,
+        feat_fc2_w: t("feat_fc2.weight")?,
+        feat_fc2_b: t("feat_fc2.bias")?,
+        feat_gate_w: t("feat_gate.weight")?,
+        feat_gate_b: t("feat_gate.bias")?,
     })
 }
 
@@ -265,7 +267,11 @@ impl TtmModel {
         }
 
         // Reshape back: [P*factor, F/factor] → [P, F]
-        if factor > 1 { Ok(h.reshape((p, f))?) } else { Ok(h) }
+        if factor > 1 {
+            Ok(h.reshape((p, f))?)
+        } else {
+            Ok(h)
+        }
     }
 }
 
@@ -288,9 +294,8 @@ fn forward_patch_mixer(hidden: &Tensor, w: &MixerLayer, eps: f64) -> Result<Tens
     let h = linear(&h, &w.patch_fc1_w, Some(&w.patch_fc1_b))?.gelu_erf()?;
     let h = linear(&h, &w.patch_fc2_w, Some(&w.patch_fc2_b))?;
     // Gated attention: softmax(linear(h)) * h
-    let gate = candle_nn::ops::softmax_last_dim(
-        &linear(&h, &w.patch_gate_w, Some(&w.patch_gate_b))?
-    )?;
+    let gate =
+        candle_nn::ops::softmax_last_dim(&linear(&h, &w.patch_gate_w, Some(&w.patch_gate_b))?)?;
     let h = (h * gate)?;
     // Transpose back [F, P] → [P, F]
     let h = h.t()?.contiguous()?;
@@ -303,9 +308,8 @@ fn forward_feat_mixer(hidden: &Tensor, w: &MixerLayer, eps: f64) -> Result<Tenso
     let h = layer_norm(hidden, &w.feat_norm_w, &w.feat_norm_b, eps)?;
     let h = linear(&h, &w.feat_fc1_w, Some(&w.feat_fc1_b))?.gelu_erf()?;
     let h = linear(&h, &w.feat_fc2_w, Some(&w.feat_fc2_b))?;
-    let gate = candle_nn::ops::softmax_last_dim(
-        &linear(&h, &w.feat_gate_w, Some(&w.feat_gate_b))?
-    )?;
+    let gate =
+        candle_nn::ops::softmax_last_dim(&linear(&h, &w.feat_gate_w, Some(&w.feat_gate_b))?)?;
     let h = (h * gate)?;
     Ok((h + hidden)?)
 }
@@ -332,7 +336,12 @@ fn std_scale(x: &[f32]) -> (Vec<f32>, f32, f32) {
 /// Extract `num_patches` patches of length `patch_length` with stride `patch_stride`.
 /// Uses the last `patch_length + patch_stride * (num_patches - 1)` timesteps.
 /// Left-pads with the first value when the context is shorter than needed.
-fn patchify(x: &[f32], patch_length: usize, patch_stride: usize, num_patches: usize) -> Vec<Vec<f32>> {
+fn patchify(
+    x: &[f32],
+    patch_length: usize,
+    patch_stride: usize,
+    num_patches: usize,
+) -> Vec<Vec<f32>> {
     let new_seq_len = patch_length + patch_stride * (num_patches - 1);
     let padded: Vec<f32> = if x.len() < new_seq_len {
         let pad_val = x.first().copied().unwrap_or(0.0);
@@ -365,7 +374,10 @@ impl zsfm_core::Forecaster for TtmModel {
         _mask: &[Vec<bool>],
         horizon: usize,
     ) -> Result<zsfm_core::QuantileMatrix> {
-        anyhow::ensure!(context.len() == 1, "TtmModel only supports univariate forecasting (1 variate)");
+        anyhow::ensure!(
+            context.len() == 1,
+            "TtmModel only supports univariate forecasting (1 variate)"
+        );
         let raw = TtmModel::forecast(self, &context[0])?;
         let point: Vec<f32> = raw.into_iter().take(horizon).collect();
         Ok(vec![vec![point]])

@@ -11,9 +11,9 @@ anyhow.workspace = true
 serde_json.workspace = true
 safetensors.workspace = true
 candle-core.workspace = true
-half = "2"
-hdf5 = { package = "hdf5-metno", version = "0.10", features = ["static", "f16"] }
-zip = { version = "2", default-features = false, features = ["deflate"] }
+half.workspace = true
+hdf5.workspace = true
+zip.workspace = true
 zsfm-gguf.workspace = true
 
 [lib]

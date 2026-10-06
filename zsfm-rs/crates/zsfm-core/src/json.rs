@@ -48,7 +48,10 @@ pub fn quantile_matrix_to_output(
         quantiles
     };
     let point_for = |vi: usize| -> Vec<f32> {
-        qmat.get(median_idx).and_then(|v| v.get(vi)).cloned().unwrap_or_default()
+        qmat.get(median_idx)
+            .and_then(|v| v.get(vi))
+            .cloned()
+            .unwrap_or_default()
     };
 
     if n_var <= 1 {
@@ -58,7 +61,10 @@ pub fn quantile_matrix_to_output(
         }
     } else {
         let variates = (0..n_var)
-            .map(|vi| VariateForecast { point: point_for(vi), quantiles: quantiles_for(vi) })
+            .map(|vi| VariateForecast {
+                point: point_for(vi),
+                quantiles: quantiles_for(vi),
+            })
             .collect();
         ForecastOutput::Multivariate { variates }
     }
@@ -106,9 +112,16 @@ pub fn forecast_response_json(
         choices: outputs
             .into_iter()
             .enumerate()
-            .map(|(i, forecast)| Choice { index: i, forecast, finish_reason: "stop" })
+            .map(|(i, forecast)| Choice {
+                index: i,
+                forecast,
+                finish_reason: "stop",
+            })
             .collect(),
-        usage: Usage { context_length, forecast_length },
+        usage: Usage {
+            context_length,
+            forecast_length,
+        },
     };
 
     Ok(serde_json::to_string_pretty(&resp)?)

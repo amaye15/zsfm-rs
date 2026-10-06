@@ -10,3 +10,4 @@ description = "Shared traits, request/response JSON envelope, and config helpers
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+thiserror.workspace = true

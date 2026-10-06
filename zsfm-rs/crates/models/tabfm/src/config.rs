@@ -49,5 +49,9 @@ impl TabFMConfig {
     }
 }
 
-fn default_num_freq() -> u32 { 32 }
-fn default_norm_eps() -> f64 { 1e-6 }
+fn default_num_freq() -> u32 {
+    32
+}
+fn default_norm_eps() -> f64 {
+    1e-6
+}

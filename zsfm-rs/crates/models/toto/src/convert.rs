@@ -74,8 +74,12 @@ pub fn convert(
                 }
             };
 
-            let src_dtype = ggml_type_from_st(tensor_view.dtype())
-                .with_context(|| format!("tensor {hf_name}: unsupported dtype {:?}", tensor_view.dtype()))?;
+            let src_dtype = ggml_type_from_st(tensor_view.dtype()).with_context(|| {
+                format!(
+                    "tensor {hf_name}: unsupported dtype {:?}",
+                    tensor_view.dtype()
+                )
+            })?;
 
             let raw_data = tensor_view.data();
             let py_shape = tensor_view.shape(); // Python row-major: [d0, d1, ..., d_inner]
@@ -169,7 +173,10 @@ fn ggml_type_from_st(dtype: StDtype) -> anyhow::Result<GGMLType> {
 
 /// Build the GGUF metadata section from the parsed config.
 fn write_metadata(writer: &mut GGUFWriter, model_id: &str, config: &TotoConfig) {
-    writer.add_metadata("general.architecture", GGUFMetaValue::String("toto2".into()));
+    writer.add_metadata(
+        "general.architecture",
+        GGUFMetaValue::String("toto2".into()),
+    );
     writer.add_metadata("general.name", GGUFMetaValue::String(model_id.into()));
     writer.add_metadata(
         "toto2.block_count",
@@ -191,10 +198,7 @@ fn write_metadata(writer: &mut GGUFWriter, model_id: &str, config: &TotoConfig) 
         "toto2.attention.head_dim",
         GGUFMetaValue::Uint32(config.head_dim),
     );
-    writer.add_metadata(
-        "toto2.patch_size",
-        GGUFMetaValue::Uint32(config.patch_size),
-    );
+    writer.add_metadata("toto2.patch_size", GGUFMetaValue::Uint32(config.patch_size));
     writer.add_metadata(
         "toto2.quantile_count",
         GGUFMetaValue::Uint32(config.num_quantiles),
@@ -205,9 +209,7 @@ fn write_metadata(writer: &mut GGUFWriter, model_id: &str, config: &TotoConfig) 
 fn load_shard_bytes(shards: &[std::path::PathBuf]) -> anyhow::Result<Vec<Vec<u8>>> {
     shards
         .iter()
-        .map(|p| {
-            std::fs::read(p).with_context(|| format!("read shard {}", p.display()))
-        })
+        .map(|p| std::fs::read(p).with_context(|| format!("read shard {}", p.display())))
         .collect()
 }
 
@@ -291,19 +293,17 @@ fn cast_data(data: &[u8], src: GGMLType, dst: GGMLType) -> anyhow::Result<Vec<u8
 fn decode_to_f32(data: &[u8], src: GGMLType) -> anyhow::Result<Vec<f32>> {
     match src {
         GGMLType::F32 => parse_f32_le(data),
-        GGMLType::F16 => {
-            data.chunks_exact(2)
-                .map(|c| Ok(f16_to_f32(u16::from_le_bytes([c[0], c[1]]))))
-                .collect()
-        }
-        GGMLType::BF16 => {
-            data.chunks_exact(2)
-                .map(|c| {
-                    let bf16_bits = u16::from_le_bytes([c[0], c[1]]);
-                    Ok(f32::from_bits((bf16_bits as u32) << 16))
-                })
-                .collect()
-        }
+        GGMLType::F16 => data
+            .chunks_exact(2)
+            .map(|c| Ok(f16_to_f32(u16::from_le_bytes([c[0], c[1]]))))
+            .collect(),
+        GGMLType::BF16 => data
+            .chunks_exact(2)
+            .map(|c| {
+                let bf16_bits = u16::from_le_bytes([c[0], c[1]]);
+                Ok(f32::from_bits((bf16_bits as u32) << 16))
+            })
+            .collect(),
         GGMLType::Q8_0 => anyhow::bail!("Q8_0 → Q8_0 re-quantization not supported as source"),
     }
 }
@@ -356,7 +356,8 @@ fn parse_f32_le(data: &[u8]) -> anyhow::Result<Vec<f32>> {
     if data.len() % 4 != 0 {
         anyhow::bail!("f32 data length not divisible by 4");
     }
-    Ok(data.chunks_exact(4)
+    Ok(data
+        .chunks_exact(4)
         .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
         .collect())
 }

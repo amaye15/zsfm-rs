@@ -4,11 +4,11 @@ pub fn map_tensor_name(hf_name: &str) -> Option<String> {
     // Patcher (Linear patch_length → d_model)
     match hf_name {
         "backbone.encoder.patcher.weight" => return Some("enc.patcher.weight".into()),
-        "backbone.encoder.patcher.bias"   => return Some("enc.patcher.bias".into()),
-        "decoder.adapter.weight"          => return Some("dec.adapter.weight".into()),
-        "decoder.adapter.bias"            => return Some("dec.adapter.bias".into()),
+        "backbone.encoder.patcher.bias" => return Some("enc.patcher.bias".into()),
+        "decoder.adapter.weight" => return Some("dec.adapter.weight".into()),
+        "decoder.adapter.bias" => return Some("dec.adapter.bias".into()),
         "head.base_forecast_block.weight" => return Some("head.weight".into()),
-        "head.base_forecast_block.bias"   => return Some("head.bias".into()),
+        "head.base_forecast_block.bias" => return Some("head.bias".into()),
         _ => {}
     }
 
@@ -50,22 +50,22 @@ fn map_decoder_mixer_layer(rest: &str) -> Option<String> {
 
 fn map_mixer_suffix(suffix: &str) -> Option<&'static str> {
     Some(match suffix {
-        "patch_mixer.norm.norm.weight"            => "patch_norm.weight",
-        "patch_mixer.norm.norm.bias"              => "patch_norm.bias",
-        "patch_mixer.mlp.fc1.weight"              => "patch_fc1.weight",
-        "patch_mixer.mlp.fc1.bias"                => "patch_fc1.bias",
-        "patch_mixer.mlp.fc2.weight"              => "patch_fc2.weight",
-        "patch_mixer.mlp.fc2.bias"                => "patch_fc2.bias",
+        "patch_mixer.norm.norm.weight" => "patch_norm.weight",
+        "patch_mixer.norm.norm.bias" => "patch_norm.bias",
+        "patch_mixer.mlp.fc1.weight" => "patch_fc1.weight",
+        "patch_mixer.mlp.fc1.bias" => "patch_fc1.bias",
+        "patch_mixer.mlp.fc2.weight" => "patch_fc2.weight",
+        "patch_mixer.mlp.fc2.bias" => "patch_fc2.bias",
         "patch_mixer.gating_block.attn_layer.weight" => "patch_gate.weight",
-        "patch_mixer.gating_block.attn_layer.bias"   => "patch_gate.bias",
-        "feature_mixer.norm.norm.weight"          => "feat_norm.weight",
-        "feature_mixer.norm.norm.bias"            => "feat_norm.bias",
-        "feature_mixer.mlp.fc1.weight"            => "feat_fc1.weight",
-        "feature_mixer.mlp.fc1.bias"              => "feat_fc1.bias",
-        "feature_mixer.mlp.fc2.weight"            => "feat_fc2.weight",
-        "feature_mixer.mlp.fc2.bias"              => "feat_fc2.bias",
+        "patch_mixer.gating_block.attn_layer.bias" => "patch_gate.bias",
+        "feature_mixer.norm.norm.weight" => "feat_norm.weight",
+        "feature_mixer.norm.norm.bias" => "feat_norm.bias",
+        "feature_mixer.mlp.fc1.weight" => "feat_fc1.weight",
+        "feature_mixer.mlp.fc1.bias" => "feat_fc1.bias",
+        "feature_mixer.mlp.fc2.weight" => "feat_fc2.weight",
+        "feature_mixer.mlp.fc2.bias" => "feat_fc2.bias",
         "feature_mixer.gating_block.attn_layer.weight" => "feat_gate.weight",
-        "feature_mixer.gating_block.attn_layer.bias"   => "feat_gate.bias",
+        "feature_mixer.gating_block.attn_layer.bias" => "feat_gate.bias",
         _ => return None,
     })
 }
@@ -76,8 +76,14 @@ mod tests {
 
     #[test]
     fn patcher() {
-        assert_eq!(map_tensor_name("backbone.encoder.patcher.weight"), Some("enc.patcher.weight".into()));
-        assert_eq!(map_tensor_name("backbone.encoder.patcher.bias"), Some("enc.patcher.bias".into()));
+        assert_eq!(
+            map_tensor_name("backbone.encoder.patcher.weight"),
+            Some("enc.patcher.weight".into())
+        );
+        assert_eq!(
+            map_tensor_name("backbone.encoder.patcher.bias"),
+            Some("enc.patcher.bias".into())
+        );
     }
 
     #[test]
@@ -102,7 +108,10 @@ mod tests {
 
     #[test]
     fn head() {
-        assert_eq!(map_tensor_name("head.base_forecast_block.weight"), Some("head.weight".into()));
+        assert_eq!(
+            map_tensor_name("head.base_forecast_block.weight"),
+            Some("head.weight".into())
+        );
     }
 
     #[test]

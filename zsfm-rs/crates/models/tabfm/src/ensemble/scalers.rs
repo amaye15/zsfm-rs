@@ -82,7 +82,10 @@ impl StandardScaler {
     pub fn fit(x: &[f64]) -> Self {
         let mean = mean(x);
         let std = std_dev(x, mean, 0);
-        StandardScaler { mean, scale: if std == 0.0 { 1.0 } else { std } }
+        StandardScaler {
+            mean,
+            scale: if std == 0.0 { 1.0 } else { std },
+        }
     }
 
     pub fn transform(&self, x: &[f64]) -> Vec<f64> {
@@ -108,7 +111,7 @@ pub struct RobustScaler {
 impl RobustScaler {
     pub fn fit(x: &[f64]) -> Self {
         let mut sorted = x.to_vec();
-        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        sorted.sort_by(|a, b| a.total_cmp(b));
         let median = percentile_linear(&sorted, 50.0);
         let q25 = percentile_linear(&sorted, 25.0);
         let q75 = percentile_linear(&sorted, 75.0);
@@ -137,20 +140,25 @@ impl QuantileTransformer {
     pub fn fit(x: &[f64]) -> Self {
         let n_quantiles = 1000usize.min(x.len().max(1));
         let mut sorted = x.to_vec();
-        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        sorted.sort_by(|a, b| a.total_cmp(b));
 
         let references: Vec<f64> = (0..n_quantiles)
             .map(|i| i as f64 / (n_quantiles - 1).max(1) as f64)
             .collect();
-        let mut quantiles: Vec<f64> =
-            references.iter().map(|&r| percentile_linear(&sorted, r * 100.0)).collect();
+        let mut quantiles: Vec<f64> = references
+            .iter()
+            .map(|&r| percentile_linear(&sorted, r * 100.0))
+            .collect();
         // Enforce monotonicity (sklearn does this to guard against numerical noise).
         for i in 1..quantiles.len() {
             if quantiles[i] < quantiles[i - 1] {
                 quantiles[i] = quantiles[i - 1];
             }
         }
-        QuantileTransformer { references, quantiles }
+        QuantileTransformer {
+            references,
+            quantiles,
+        }
     }
 
     pub fn transform(&self, x: &[f64]) -> Vec<f64> {
@@ -175,10 +183,17 @@ pub struct PowerTransformer {
 impl PowerTransformer {
     pub fn fit(x: &[f64]) -> Self {
         let lambda = yeo_johnson_optimize(x);
-        let transformed: Vec<f64> = x.iter().map(|&v| yeo_johnson_transform(v, lambda)).collect();
+        let transformed: Vec<f64> = x
+            .iter()
+            .map(|&v| yeo_johnson_transform(v, lambda))
+            .collect();
         let post_mean = mean(&transformed);
         let post_std = std_dev(&transformed, post_mean, 0).max(1e-300);
-        PowerTransformer { lambda, post_mean, post_std }
+        PowerTransformer {
+            lambda,
+            post_mean,
+            post_std,
+        }
     }
 
     pub fn transform(&self, x: &[f64]) -> Vec<f64> {
@@ -281,7 +296,10 @@ fn yeo_johnson_transform(x: f64, lambda: f64) -> f64 {
 /// `PowerTransformer._yeo_johnson_optimize`'s objective (maximized there; minimized here).
 fn yeo_johnson_neg_log_likelihood(x: &[f64], lambda: f64) -> f64 {
     let n = x.len() as f64;
-    let transformed: Vec<f64> = x.iter().map(|&v| yeo_johnson_transform(v, lambda)).collect();
+    let transformed: Vec<f64> = x
+        .iter()
+        .map(|&v| yeo_johnson_transform(v, lambda))
+        .collect();
     let m = mean(&transformed);
     let var = variance(&transformed, m, 0);
     if var < f64::MIN_POSITIVE {
@@ -294,7 +312,11 @@ fn yeo_johnson_neg_log_likelihood(x: &[f64], lambda: f64) -> f64 {
 }
 
 fn yeo_johnson_optimize(x: &[f64]) -> f64 {
-    brent_minimize(|lambda| yeo_johnson_neg_log_likelihood(x, lambda), -2.0, 2.0)
+    brent_minimize(
+        |lambda| yeo_johnson_neg_log_likelihood(x, lambda),
+        -2.0,
+        2.0,
+    )
 }
 
 /// A 1-D bracket-then-Brent minimizer, matching the shape of `scipy.optimize.brent`: first grows
@@ -337,28 +359,53 @@ fn brent_minimize(f: impl Fn(f64) -> f64, xa0: f64, xb0: f64) -> f64 {
             }
             u = cx + GOLD * (cx - bx);
             let fu2 = f(u);
-            ax = bx; bx = cx; cx = u;
-            fa = fb; fb = fc; fc = fu2;
+            ax = bx;
+            bx = cx;
+            cx = u;
+            fa = fb;
+            fb = fc;
+            fc = fu2;
         } else if (cx - u) * (u - ulim) > 0.0 {
             fu = f(u);
             if fu < fc {
-                bx = cx; cx = u; let u2 = cx + GOLD * (cx - bx);
-                fb = fc; fc = fu; let fu2 = f(u2);
-                ax = bx; bx = cx; cx = u2; fa = fb; fb = fc; fc = fu2;
+                bx = cx;
+                cx = u;
+                let u2 = cx + GOLD * (cx - bx);
+                fb = fc;
+                fc = fu;
+                let fu2 = f(u2);
+                ax = bx;
+                bx = cx;
+                cx = u2;
+                fa = fb;
+                fb = fc;
+                fc = fu2;
             } else {
-                ax = bx; bx = cx; cx = u;
-                fa = fb; fb = fc; fc = fu;
+                ax = bx;
+                bx = cx;
+                cx = u;
+                fa = fb;
+                fb = fc;
+                fc = fu;
             }
         } else if (u - ulim) * (ulim - cx) >= 0.0 {
             u = ulim;
             fu = f(u);
-            ax = bx; bx = cx; cx = u;
-            fa = fb; fb = fc; fc = fu;
+            ax = bx;
+            bx = cx;
+            cx = u;
+            fa = fb;
+            fb = fc;
+            fc = fu;
         } else {
             u = cx + GOLD * (cx - bx);
             fu = f(u);
-            ax = bx; bx = cx; cx = u;
-            fa = fb; fb = fc; fc = fu;
+            ax = bx;
+            bx = cx;
+            cx = u;
+            fa = fb;
+            fb = fc;
+            fc = fu;
         }
         if (cx - ax).abs() > 1e6 {
             break; // safety valve against runaway brackets on pathological inputs
@@ -411,7 +458,11 @@ fn brent_minimize(f: impl Fn(f64) -> f64, xa0: f64, xb0: f64) -> f64 {
             e = if x >= xm { a - x } else { c - x };
             d = CGOLD * e;
         }
-        let u = if d.abs() >= tol1 { x + d } else { x + if d >= 0.0 { tol1 } else { -tol1 } };
+        let u = if d.abs() >= tol1 {
+            x + d
+        } else {
+            x + if d >= 0.0 { tol1 } else { -tol1 }
+        };
         let fu = f(u);
         if fu <= fx {
             if u >= x {
@@ -419,9 +470,12 @@ fn brent_minimize(f: impl Fn(f64) -> f64, xa0: f64, xb0: f64) -> f64 {
             } else {
                 c = x;
             }
-            v = w; fv = fw;
-            w = x; fw = fx;
-            x = u; fx = fu;
+            v = w;
+            fv = fw;
+            w = x;
+            fw = fx;
+            x = u;
+            fx = fu;
         } else {
             if u < x {
                 a = u;
@@ -429,10 +483,13 @@ fn brent_minimize(f: impl Fn(f64) -> f64, xa0: f64, xb0: f64) -> f64 {
                 c = u;
             }
             if fu <= fw || w == x {
-                v = w; fv = fw;
-                w = u; fw = fu;
+                v = w;
+                fv = fw;
+                w = u;
+                fw = fu;
             } else if fu <= fv || v == x || v == w {
-                v = u; fv = fu;
+                v = u;
+                fv = fu;
             }
         }
     }
@@ -444,7 +501,11 @@ fn brent_minimize(f: impl Fn(f64) -> f64, xa0: f64, xb0: f64) -> f64 {
 // ---------------------------------------------------------------------------
 
 fn mean(x: &[f64]) -> f64 {
-    if x.is_empty() { 0.0 } else { x.iter().sum::<f64>() / x.len() as f64 }
+    if x.is_empty() {
+        0.0
+    } else {
+        x.iter().sum::<f64>() / x.len() as f64
+    }
 }
 
 fn variance(x: &[f64], mean: f64, ddof: usize) -> f64 {
@@ -511,19 +572,32 @@ pub fn norm_ppf(p: f64) -> f64 {
         return f64::INFINITY;
     }
     const A: [f64; 6] = [
-        -3.969_683_028_665_376e+01, 2.209_460_984_245_205e+02, -2.759_285_104_469_687e+02,
-        1.383_577_518_672_690e+02, -3.066_479_806_614_716e+01, 2.506_628_277_459_239e+00,
+        -3.969_683_028_665_376e+01,
+        2.209_460_984_245_205e+02,
+        -2.759_285_104_469_687e+02,
+        1.383_577_518_672_690e+02,
+        -3.066_479_806_614_716e+01,
+        2.506_628_277_459_239e+00,
     ];
     const B: [f64; 5] = [
-        -5.447_609_879_822_406e+01, 1.615_858_368_580_409e+02, -1.556_989_798_598_866e+02,
-        6.680_131_188_771_972e+01, -1.328_068_155_288_572e+01,
+        -5.447_609_879_822_406e+01,
+        1.615_858_368_580_409e+02,
+        -1.556_989_798_598_866e+02,
+        6.680_131_188_771_972e+01,
+        -1.328_068_155_288_572e+01,
     ];
     const C: [f64; 6] = [
-        -7.784_894_002_430_293e-03, -3.223_964_580_411_365e-01, -2.400_758_277_161_838e+00,
-        -2.549_732_539_343_734e+00, 4.374_664_141_464_968e+00, 2.938_163_982_698_783e+00,
+        -7.784_894_002_430_293e-03,
+        -3.223_964_580_411_365e-01,
+        -2.400_758_277_161_838e+00,
+        -2.549_732_539_343_734e+00,
+        4.374_664_141_464_968e+00,
+        2.938_163_982_698_783e+00,
     ];
     const D: [f64; 4] = [
-        7.784_695_709_041_462e-03, 3.224_671_290_700_398e-01, 2.445_134_137_142_996e+00,
+        7.784_695_709_041_462e-03,
+        3.224_671_290_700_398e-01,
+        2.445_134_137_142_996e+00,
         3.754_408_661_907_416e+00,
     ];
     const P_LOW: f64 = 0.02425;
@@ -611,19 +685,49 @@ mod tests {
         // Generated via: sklearn.preprocessing.PowerTransformer(method="yeo-johnson",
         // standardize=True) fit on np.random.default_rng(0).uniform(-2, 2, 20).
         let x = vec![
-            0.5478467492858172, -0.9208531449445188, -1.8361059042552212, -1.9338894578858836,
-            1.2530809568010897, 1.6510223091108869, 0.42654310306871945, 0.9179862439359936,
-            0.17449996586169148, 1.740289695151073, 1.2634142164861286, -1.9890459993194076,
-            1.4296171063502774, -1.8656576987781426, 0.9186217857197763, -1.297377517589764,
-            1.4527156893995463, 0.16584488099636685, -0.8011524378504609, -0.3092511152093662,
+            0.5478467492858172,
+            -0.9208531449445188,
+            -1.8361059042552212,
+            -1.9338894578858836,
+            1.2530809568010897,
+            1.6510223091108869,
+            0.42654310306871945,
+            0.9179862439359936,
+            0.17449996586169148,
+            1.740289695151073,
+            1.2634142164861286,
+            -1.9890459993194076,
+            1.4296171063502774,
+            -1.8656576987781426,
+            0.9186217857197763,
+            -1.297377517589764,
+            1.4527156893995463,
+            0.16584488099636685,
+            -0.8011524378504609,
+            -0.3092511152093662,
         ];
         let expected_lambda = 1.345222766603304;
         let expected_transformed = [
-            0.2719479783598148, -0.8318522439585222, -1.3650247006836644, -1.4181615227275621,
-            0.9606112117567647, 1.3853857310641091, 0.16297351213481462, 0.6223628894658091,
-            -0.05314385725391679, 1.483863071047962, 0.9713347980371447, -1.4478643497510573,
-            1.1461058305187737, -1.3811492793940139, 0.6229863176690302, -1.0599639970952783,
-            1.1707302052556954, -0.06030208166470946, -0.7561721820272899, -0.42466733075390517,
+            0.2719479783598148,
+            -0.8318522439585222,
+            -1.3650247006836644,
+            -1.4181615227275621,
+            0.9606112117567647,
+            1.3853857310641091,
+            0.16297351213481462,
+            0.6223628894658091,
+            -0.05314385725391679,
+            1.483863071047962,
+            0.9713347980371447,
+            -1.4478643497510573,
+            1.1461058305187737,
+            -1.3811492793940139,
+            0.6229863176690302,
+            -1.0599639970952783,
+            1.1707302052556954,
+            -0.06030208166470946,
+            -0.7561721820272899,
+            -0.42466733075390517,
         ];
         let pt = PowerTransformer::fit(&x);
         assert!(
@@ -652,18 +756,48 @@ mod tests {
         // random_state=0) fit on np.random.default_rng(0).uniform(-2, 2, 20). n_quantiles is
         // capped to n_samples=20 by sklearn since 1000 > 20.
         let x = vec![
-            0.5478467492858172, -0.9208531449445188, -1.8361059042552212, -1.9338894578858836,
-            1.2530809568010897, 1.6510223091108869, 0.42654310306871945, 0.9179862439359936,
-            0.17449996586169148, 1.740289695151073, 1.2634142164861286, -1.9890459993194076,
-            1.4296171063502774, -1.8656576987781426, 0.9186217857197763, -1.297377517589764,
-            1.4527156893995463, 0.16584488099636685, -0.8011524378504609, -0.3092511152093662,
+            0.5478467492858172,
+            -0.9208531449445188,
+            -1.8361059042552212,
+            -1.9338894578858836,
+            1.2530809568010897,
+            1.6510223091108869,
+            0.42654310306871945,
+            0.9179862439359936,
+            0.17449996586169148,
+            1.740289695151073,
+            1.2634142164861286,
+            -1.9890459993194076,
+            1.4296171063502774,
+            -1.8656576987781426,
+            0.9186217857197763,
+            -1.297377517589764,
+            1.4527156893995463,
+            0.16584488099636685,
+            -0.8011524378504609,
+            -0.3092511152093662,
         ];
         let expected = [
-            0.199201324789267, -0.6336400007797011, -1.003147967662534, -1.6198562586382699,
-            0.633640000779701, 1.6198562586382697, 0.0660118123758406, 0.33603814037182306,
-            -0.06601181237584074, 5.19933758270342, 0.8045963803603002, -5.199337582605575,
-            1.0031479676625337, -1.2521195202652193, 0.47950565333094985, -0.8045963803603002,
-            1.2521195202652189, -0.199201324789267, -0.47950565333095013, -0.33603814037182317,
+            0.199201324789267,
+            -0.6336400007797011,
+            -1.003147967662534,
+            -1.6198562586382699,
+            0.633640000779701,
+            1.6198562586382697,
+            0.0660118123758406,
+            0.33603814037182306,
+            -0.06601181237584074,
+            5.19933758270342,
+            0.8045963803603002,
+            -5.199337582605575,
+            1.0031479676625337,
+            -1.2521195202652193,
+            0.47950565333094985,
+            -0.8045963803603002,
+            1.2521195202652189,
+            -0.199201324789267,
+            -0.47950565333095013,
+            -0.33603814037182317,
         ];
         let qt = QuantileTransformer::fit(&x);
         let got = qt.transform(&x);

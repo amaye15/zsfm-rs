@@ -1,9 +1,9 @@
 mod rope;
 
 use std::collections::HashMap;
-use std::sync::Mutex;
 use std::io::{BufReader, Read, Seek};
 use std::path::Path;
+use std::sync::Mutex;
 
 use anyhow::{Context, Result};
 use candle_core::quantized::gguf_file;
@@ -44,20 +44,20 @@ struct ResidualBlockW {
 }
 
 struct AttnW {
-    qkv_w: Tensor,        // [3*D_MODEL, D_MODEL]
-    out_w: Tensor,        // [D_MODEL, D_MODEL]
-    q_norm_w: Tensor,     // [HEAD_DIM]
-    k_norm_w: Tensor,     // [HEAD_DIM]
-    q_scale: Tensor,      // [HEAD_DIM] cached as Tensor to avoid alloc per attention forward
-    pre_norm_w: Tensor,   // [D_MODEL]
-    post_norm_w: Tensor,  // [D_MODEL]
+    qkv_w: Tensor,       // [3*D_MODEL, D_MODEL]
+    out_w: Tensor,       // [D_MODEL, D_MODEL]
+    q_norm_w: Tensor,    // [HEAD_DIM]
+    k_norm_w: Tensor,    // [HEAD_DIM]
+    q_scale: Tensor,     // [HEAD_DIM] cached as Tensor to avoid alloc per attention forward
+    pre_norm_w: Tensor,  // [D_MODEL]
+    post_norm_w: Tensor, // [D_MODEL]
 }
 
 struct FfnW {
-    up_w: Tensor,         // [D_MODEL, D_MODEL]
-    down_w: Tensor,       // [D_MODEL, D_MODEL]
-    pre_norm_w: Tensor,   // [D_MODEL]
-    post_norm_w: Tensor,  // [D_MODEL]
+    up_w: Tensor,        // [D_MODEL, D_MODEL]
+    down_w: Tensor,      // [D_MODEL, D_MODEL]
+    pre_norm_w: Tensor,  // [D_MODEL]
+    post_norm_w: Tensor, // [D_MODEL]
 }
 
 struct BlockW {
@@ -99,29 +99,73 @@ fn load_residual_block(
     with_bias: bool,
     device: &Device,
 ) -> Result<ResidualBlockW> {
-    let hidden_w = load_weight(content, reader, &format!("{prefix}.hidden.weight"), hidden_d_out, device)?;
+    let hidden_w = load_weight(
+        content,
+        reader,
+        &format!("{prefix}.hidden.weight"),
+        hidden_d_out,
+        device,
+    )?;
     let hidden_b = if with_bias {
-        Some(load_tensor(content, reader, &format!("{prefix}.hidden.bias"), device)?)
+        Some(load_tensor(
+            content,
+            reader,
+            &format!("{prefix}.hidden.bias"),
+            device,
+        )?)
     } else {
         None
     };
-    let output_w = load_weight(content, reader, &format!("{prefix}.output.weight"), out_d_out, device)?;
+    let output_w = load_weight(
+        content,
+        reader,
+        &format!("{prefix}.output.weight"),
+        out_d_out,
+        device,
+    )?;
     let output_b = if with_bias {
-        Some(load_tensor(content, reader, &format!("{prefix}.output.bias"), device)?)
+        Some(load_tensor(
+            content,
+            reader,
+            &format!("{prefix}.output.bias"),
+            device,
+        )?)
     } else {
         None
     };
-    let skip_w = load_weight(content, reader, &format!("{prefix}.skip.weight"), out_d_out, device)?;
+    let skip_w = load_weight(
+        content,
+        reader,
+        &format!("{prefix}.skip.weight"),
+        out_d_out,
+        device,
+    )?;
     let skip_b = if with_bias {
-        Some(load_tensor(content, reader, &format!("{prefix}.skip.bias"), device)?)
+        Some(load_tensor(
+            content,
+            reader,
+            &format!("{prefix}.skip.bias"),
+            device,
+        )?)
     } else {
         None
     };
-    Ok(ResidualBlockW { hidden_w, hidden_b, output_w, output_b, skip_w, skip_b })
+    Ok(ResidualBlockW {
+        hidden_w,
+        hidden_b,
+        output_w,
+        output_b,
+        skip_w,
+        skip_b,
+    })
 }
 
 fn softplus(x: f32) -> f32 {
-    if x > 20.0 { x } else { (1.0f32 + x.exp()).ln() }
+    if x > 20.0 {
+        x
+    } else {
+        (1.0f32 + x.exp()).ln()
+    }
 }
 
 fn compute_q_scale(raw: Vec<f32>) -> Vec<f32> {
@@ -139,27 +183,92 @@ impl TimesFMModel {
 
         // Tokenizer ResidualBlock: in=64, hidden=1280, out=1280, bias=true
         let tokenizer = load_residual_block(
-            &content, &mut reader, "tokenizer", D_MODEL, D_MODEL, true, &device,
+            &content,
+            &mut reader,
+            "tokenizer",
+            D_MODEL,
+            D_MODEL,
+            true,
+            &device,
         )?;
 
         // 20 transformer blocks
         let mut blocks = Vec::with_capacity(N_LAYERS);
         for n in 0..N_LAYERS {
             let b = format!("blk.{n}");
-            let qkv_raw = load_weight(&content, &mut reader, &format!("{b}.attn_qkv.weight"), 3 * D_MODEL, &device)?;
-            let out_w = load_weight(&content, &mut reader, &format!("{b}.attn_out.weight"), D_MODEL, &device)?;
-            let q_norm_w = load_tensor(&content, &mut reader, &format!("{b}.attn_q_norm.weight"), &device)?;
-            let k_norm_w = load_tensor(&content, &mut reader, &format!("{b}.attn_k_norm.weight"), &device)?;
-            let q_scale_raw = load_tensor(&content, &mut reader, &format!("{b}.attn_q_scale.weight"), &device)?
-                .to_vec1::<f32>()?;
+            let qkv_raw = load_weight(
+                &content,
+                &mut reader,
+                &format!("{b}.attn_qkv.weight"),
+                3 * D_MODEL,
+                &device,
+            )?;
+            let out_w = load_weight(
+                &content,
+                &mut reader,
+                &format!("{b}.attn_out.weight"),
+                D_MODEL,
+                &device,
+            )?;
+            let q_norm_w = load_tensor(
+                &content,
+                &mut reader,
+                &format!("{b}.attn_q_norm.weight"),
+                &device,
+            )?;
+            let k_norm_w = load_tensor(
+                &content,
+                &mut reader,
+                &format!("{b}.attn_k_norm.weight"),
+                &device,
+            )?;
+            let q_scale_raw = load_tensor(
+                &content,
+                &mut reader,
+                &format!("{b}.attn_q_scale.weight"),
+                &device,
+            )?
+            .to_vec1::<f32>()?;
             let q_scale = Tensor::from_vec(compute_q_scale(q_scale_raw), (HEAD_DIM,), &device)?;
-            let pre_norm_w  = load_tensor(&content, &mut reader, &format!("{b}.pre_attn_norm.weight"), &device)?;
-            let post_norm_w = load_tensor(&content, &mut reader, &format!("{b}.post_attn_norm.weight"), &device)?;
+            let pre_norm_w = load_tensor(
+                &content,
+                &mut reader,
+                &format!("{b}.pre_attn_norm.weight"),
+                &device,
+            )?;
+            let post_norm_w = load_tensor(
+                &content,
+                &mut reader,
+                &format!("{b}.post_attn_norm.weight"),
+                &device,
+            )?;
 
-            let up_w   = load_weight(&content, &mut reader, &format!("{b}.ffn_up.weight"),   D_MODEL, &device)?;
-            let down_w = load_weight(&content, &mut reader, &format!("{b}.ffn_down.weight"), D_MODEL, &device)?;
-            let pre_ff_norm_w  = load_tensor(&content, &mut reader, &format!("{b}.pre_ff_norm.weight"),  &device)?;
-            let post_ff_norm_w = load_tensor(&content, &mut reader, &format!("{b}.post_ff_norm.weight"), &device)?;
+            let up_w = load_weight(
+                &content,
+                &mut reader,
+                &format!("{b}.ffn_up.weight"),
+                D_MODEL,
+                &device,
+            )?;
+            let down_w = load_weight(
+                &content,
+                &mut reader,
+                &format!("{b}.ffn_down.weight"),
+                D_MODEL,
+                &device,
+            )?;
+            let pre_ff_norm_w = load_tensor(
+                &content,
+                &mut reader,
+                &format!("{b}.pre_ff_norm.weight"),
+                &device,
+            )?;
+            let post_ff_norm_w = load_tensor(
+                &content,
+                &mut reader,
+                &format!("{b}.post_ff_norm.weight"),
+                &device,
+            )?;
 
             blocks.push(BlockW {
                 attn: AttnW {
@@ -182,12 +291,25 @@ impl TimesFMModel {
 
         // Output projection (no bias, hidden=1280, out=1280)
         let out_point = load_residual_block(
-            &content, &mut reader, "out_point", D_MODEL, D_MODEL, false, &device,
+            &content,
+            &mut reader,
+            "out_point",
+            D_MODEL,
+            D_MODEL,
+            false,
+            &device,
         )?;
 
         let rope = RopeCache::new(HEAD_DIM, MAX_SEQ, ROPE_THETA, &device)?;
 
-        Ok(Self { device, rope, tokenizer, blocks, out_point, causal_mask_cache: Mutex::new(HashMap::new()) })
+        Ok(Self {
+            device,
+            rope,
+            tokenizer,
+            blocks,
+            out_point,
+            causal_mask_cache: Mutex::new(HashMap::new()),
+        })
     }
 
     // -----------------------------------------------------------------------
@@ -205,7 +327,11 @@ impl TimesFMModel {
         let m = M_PATCHES;
 
         // Pad front so len is divisible by p
-        let len_front = if context.len() % p == 0 { 0 } else { p - context.len() % p };
+        let len_front = if context.len() % p == 0 {
+            0
+        } else {
+            p - context.len() % p
+        };
         let mut vals = vec![0.0f32; len_front + context.len()];
         vals[len_front..].copy_from_slice(context);
         let mut mask = vec![true; len_front]; // True = masked (padding)
@@ -230,7 +356,11 @@ impl TimesFMModel {
         let ctx_input = build_tokenizer_input(&vals, &mask, n_ctx, p, &patch_mus, &patch_sigmas);
 
         // Prefill: full forward pass collecting per-layer KV cache
-        let num_decode_steps = if prediction_length <= o { 0 } else { (prediction_length - 1) / o };
+        let num_decode_steps = if prediction_length <= o {
+            0
+        } else {
+            (prediction_length - 1) / o
+        };
         let total_steps = 1 + num_decode_steps;
         let mut all_outputs: Vec<Vec<[f32; N_OUTPUTS]>> = Vec::with_capacity(total_steps);
 
@@ -240,7 +370,10 @@ impl TimesFMModel {
 
         // AR decode: process M_PATCHES=4 new patches per step with cached K/V
         let (mut ar_n, mut ar_mu, mut ar_sigma) = (last_n, last_mu, last_sigma);
-        let mut last_ar: Vec<f32> = ctx_denorm[n_ctx - 1].iter().map(|row| row[DECODE_IDX]).collect();
+        let mut last_ar: Vec<f32> = ctx_denorm[n_ctx - 1]
+            .iter()
+            .map(|row| row[DECODE_IDX])
+            .collect();
 
         for step in 0..num_decode_steps {
             let new_vals_flat = last_ar.clone();
@@ -256,9 +389,8 @@ impl TimesFMModel {
                 new_sigmas.push(ar_sigma);
             }
 
-            let new_input = build_tokenizer_input(
-                &new_vals_flat, &new_mask_flat, m, p, &new_mus, &new_sigmas,
-            );
+            let new_input =
+                build_tokenizer_input(&new_vals_flat, &new_mask_flat, m, p, &new_mus, &new_sigmas);
             let rope_offset = n_ctx + m * step;
             let new_out = self.decode_chunk(&new_input, &mut kv_cache, rope_offset)?;
             let last_m_denorm = denorm_flat(&new_out, &new_mus, &new_sigmas, o, q)?;
@@ -275,7 +407,9 @@ impl TimesFMModel {
         'outer: for step in &all_outputs {
             for timestep in step {
                 for qi in 0..q {
-                    if result[qi].len() >= prediction_length { break 'outer; }
+                    if result[qi].len() >= prediction_length {
+                        break 'outer;
+                    }
                     result[qi].push(timestep[qi]);
                 }
             }
@@ -290,13 +424,16 @@ impl TimesFMModel {
 
     fn prefill(
         &self,
-        tokenizer_input: &Tensor,  // [n_patches, 2*INPUT_PATCH]
+        tokenizer_input: &Tensor, // [n_patches, 2*INPUT_PATCH]
         n_patches: usize,
     ) -> Result<(Tensor, Vec<(Tensor, Tensor)>)> {
         let x = forward_residual_block(tokenizer_input, &self.tokenizer, true)?;
         let mut hidden = x.unsqueeze(0)?;
         let causal = {
-            let mut cache = self.causal_mask_cache.lock().unwrap();
+            let mut cache = self
+                .causal_mask_cache
+                .lock()
+                .map_err(|_| anyhow::anyhow!("cache mutex poisoned"))?;
             if !cache.contains_key(&n_patches) {
                 cache.insert(n_patches, make_causal_mask(n_patches, 0, &self.device)?);
             }
@@ -331,11 +468,12 @@ impl TimesFMModel {
 
     fn prefill_attn(
         &self,
-        x: Tensor,       // [1, n_patches, D_MODEL] pre-normed
+        x: Tensor, // [1, n_patches, D_MODEL] pre-normed
         w: &AttnW,
         n_patches: usize,
         causal: &Tensor,
-    ) -> Result<(Tensor, Tensor, Tensor)> {  // (output, K, V) K/V: [1,N_HEADS,n,HEAD_DIM]
+    ) -> Result<(Tensor, Tensor, Tensor)> {
+        // (output, K, V) K/V: [1,N_HEADS,n,HEAD_DIM]
         let qkv = linear(&x, &w.qkv_w, None)?;
         let q = qkv.narrow(D::Minus1, 0, D_MODEL)?;
         let k = qkv.narrow(D::Minus1, D_MODEL, D_MODEL)?;
@@ -352,7 +490,7 @@ impl TimesFMModel {
 
         let q = q.broadcast_mul(&w.q_scale)?;
 
-        let q = q.permute([0, 2, 1, 3])?.contiguous()?;   // [1, N_HEADS, n, HEAD_DIM]
+        let q = q.permute([0, 2, 1, 3])?.contiguous()?; // [1, N_HEADS, n, HEAD_DIM]
         let k = k.permute([0, 2, 1, 3])?.contiguous()?;
         let v = v.permute([0, 2, 1, 3])?.contiguous()?;
 
@@ -360,7 +498,10 @@ impl TimesFMModel {
         let scores = scores.broadcast_add(causal)?;
         let attn_w = candle_nn::ops::softmax(&scores, D::Minus1)?;
         let ctx = attn_w.matmul(&v)?;
-        let ctx = ctx.permute([0, 2, 1, 3])?.contiguous()?.reshape((1, n_patches, D_MODEL))?;
+        let ctx = ctx
+            .permute([0, 2, 1, 3])?
+            .contiguous()?
+            .reshape((1, n_patches, D_MODEL))?;
         Ok((linear(&ctx, &w.out_w, None)?, k, v))
     }
 
@@ -370,10 +511,11 @@ impl TimesFMModel {
 
     fn decode_chunk(
         &self,
-        new_input: &Tensor,                    // [M_PATCHES, 2*INPUT_PATCH]
-        kv_cache: &mut Vec<(Tensor, Tensor)>,  // mutated: K/V grow by M_PATCHES per call
-        rope_offset: usize,                    // = n_ctx + M_PATCHES * step
-    ) -> Result<Tensor> {                      // → [M_PATCHES, D_MODEL]
+        new_input: &Tensor,                   // [M_PATCHES, 2*INPUT_PATCH]
+        kv_cache: &mut Vec<(Tensor, Tensor)>, // mutated: K/V grow by M_PATCHES per call
+        rope_offset: usize,                   // = n_ctx + M_PATCHES * step
+    ) -> Result<Tensor> {
+        // → [M_PATCHES, D_MODEL]
         let x = forward_residual_block(new_input, &self.tokenizer, true)?;
         let mut hidden = x.unsqueeze(0)?;
         let cached_len = rope_offset;
@@ -410,12 +552,13 @@ impl TimesFMModel {
 
     fn decode_attn_kv(
         &self,
-        x: Tensor,                  // [1, M_PATCHES, D_MODEL] pre-normed
+        x: Tensor, // [1, M_PATCHES, D_MODEL] pre-normed
         w: &AttnW,
-        cache: &(Tensor, Tensor),   // ([1,N_HEADS,cached,HEAD_DIM], same)
+        cache: &(Tensor, Tensor), // ([1,N_HEADS,cached,HEAD_DIM], same)
         rope_offset: usize,
-        mask: &Tensor,              // [1,1,M_PATCHES,cached+M_PATCHES]
-    ) -> Result<(Tensor, Tensor, Tensor)> {  // (output, K_new, V_new)
+        mask: &Tensor, // [1,1,M_PATCHES,cached+M_PATCHES]
+    ) -> Result<(Tensor, Tensor, Tensor)> {
+        // (output, K_new, V_new)
         let qkv = linear(&x, &w.qkv_w, None)?;
         let q = qkv.narrow(D::Minus1, 0, D_MODEL)?;
         let k = qkv.narrow(D::Minus1, D_MODEL, D_MODEL)?;
@@ -432,7 +575,7 @@ impl TimesFMModel {
 
         let q = q.broadcast_mul(&w.q_scale)?;
 
-        let q = q.permute([0, 2, 1, 3])?.contiguous()?;   // [1, N_HEADS, M, HEAD_DIM]
+        let q = q.permute([0, 2, 1, 3])?.contiguous()?; // [1, N_HEADS, M, HEAD_DIM]
         let k = k.permute([0, 2, 1, 3])?.contiguous()?;
         let v = v.permute([0, 2, 1, 3])?.contiguous()?;
 
@@ -445,7 +588,10 @@ impl TimesFMModel {
         let scores = scores.broadcast_add(mask)?;
         let attn_w = candle_nn::ops::softmax(&scores, D::Minus1)?;
         let ctx = attn_w.matmul(&v_full)?;
-        let ctx = ctx.permute([0, 2, 1, 3])?.contiguous()?.reshape((1, M_PATCHES, D_MODEL))?;
+        let ctx = ctx
+            .permute([0, 2, 1, 3])?
+            .contiguous()?
+            .reshape((1, M_PATCHES, D_MODEL))?;
         Ok((linear(&ctx, &w.out_w, None)?, k_full, v_full))
     }
 
@@ -480,20 +626,33 @@ fn rms_norm(x: &Tensor, weight: &Tensor, eps: f64) -> Result<Tensor> {
 /// New query i can attend to all cached tokens plus new tokens 0..=i.
 fn make_decode_mask(new_len: usize, cache_len: usize, device: &Device) -> Result<Tensor> {
     let total = cache_len + new_len;
-    let data: Vec<f32> = (0..new_len).flat_map(|q_rel| {
-        (0..total).map(move |k_abs| {
-            if k_abs <= cache_len + q_rel { 0.0f32 } else { f32::NEG_INFINITY }
+    let data: Vec<f32> = (0..new_len)
+        .flat_map(|q_rel| {
+            (0..total).map(move |k_abs| {
+                if k_abs <= cache_len + q_rel {
+                    0.0f32
+                } else {
+                    f32::NEG_INFINITY
+                }
+            })
         })
-    }).collect();
+        .collect();
     Ok(Tensor::from_vec(data, (new_len, total), device)?
-        .unsqueeze(0)?.unsqueeze(0)?)
+        .unsqueeze(0)?
+        .unsqueeze(0)?)
 }
 
 // ---------------------------------------------------------------------------
 // Running statistics (mirrors Python update_running_stats)
 // ---------------------------------------------------------------------------
 
-fn update_running_stats(n: f32, mu: f32, sigma: f32, vals: &[f32], mask: &[bool]) -> (f32, f32, f32) {
+fn update_running_stats(
+    n: f32,
+    mu: f32,
+    sigma: f32,
+    vals: &[f32],
+    mask: &[bool],
+) -> (f32, f32, f32) {
     let mut inc_n = 0.0f32;
     let mut sum_x = 0.0f32;
     for (i, &m) in mask.iter().enumerate() {
@@ -503,22 +662,34 @@ fn update_running_stats(n: f32, mu: f32, sigma: f32, vals: &[f32], mask: &[bool]
         }
     }
     let inc_mu = if inc_n == 0.0 { 0.0 } else { sum_x / inc_n };
-    let inc_var = if inc_n == 0.0 { 0.0 } else {
-        mask.iter().enumerate()
+    let inc_var = if inc_n == 0.0 {
+        0.0
+    } else {
+        mask.iter()
+            .enumerate()
             .filter(|(_, &m)| !m)
             .map(|(i, _)| (vals[i] - inc_mu).powi(2))
-            .sum::<f32>() / inc_n
+            .sum::<f32>()
+            / inc_n
     };
     let inc_sigma = inc_var.sqrt();
 
     let new_n = n + inc_n;
     let safe_new_n = if new_n == 0.0 { 1.0 } else { new_n };
-    let new_mu = if new_n == 0.0 { 0.0 } else { (n * mu + inc_mu * inc_n) / safe_new_n };
+    let new_mu = if new_n == 0.0 {
+        0.0
+    } else {
+        (n * mu + inc_mu * inc_n) / safe_new_n
+    };
     let t1 = n * sigma.powi(2);
     let t2 = inc_n * inc_sigma.powi(2);
     let t3 = n * (mu - new_mu).powi(2);
     let t4 = inc_n * (inc_mu - new_mu).powi(2);
-    let new_var = if new_n == 0.0 { 0.0 } else { (t1 + t2 + t3 + t4) / safe_new_n };
+    let new_var = if new_n == 0.0 {
+        0.0
+    } else {
+        (t1 + t2 + t3 + t4) / safe_new_n
+    };
     (new_n, new_mu, new_var.max(0.0).sqrt())
 }
 
@@ -546,9 +717,13 @@ fn build_tokenizer_input(
         for i in 0..p {
             let idx = pi * p + i;
             let is_masked = mask[idx];
-            let normed = if is_masked { 0.0 } else { (vals[idx] - mu) / sigma_safe };
+            let normed = if is_masked {
+                0.0
+            } else {
+                (vals[idx] - mu) / sigma_safe
+            };
             let base = pi * 2 * p;
-            data[base + i] = normed;                // value channel
+            data[base + i] = normed; // value channel
             data[base + p + i] = if is_masked { 1.0 } else { 0.0 }; // mask channel
         }
     }
@@ -564,7 +739,7 @@ fn build_tokenizer_input(
 /// Each patch i is denormed: out * sigma[i] + mu[i].
 /// Then reshaped to [OUTPUT_PATCH, N_OUTPUTS].
 fn denorm_flat(
-    output: &Tensor,          // [n_patches, D_MODEL]
+    output: &Tensor, // [n_patches, D_MODEL]
     mus: &[f32],
     sigmas: &[f32],
     o: usize,
@@ -606,7 +781,10 @@ impl zsfm_core::Forecaster for TimesFMModel {
         _mask: &[Vec<bool>],
         horizon: usize,
     ) -> Result<zsfm_core::QuantileMatrix> {
-        anyhow::ensure!(context.len() == 1, "TimesFMModel only supports univariate forecasting (1 variate)");
+        anyhow::ensure!(
+            context.len() == 1,
+            "TimesFMModel only supports univariate forecasting (1 variate)"
+        );
         let outputs = TimesFMModel::forecast(self, &context[0], horizon)?; // [N_OUTPUTS][horizon]
         Ok(outputs.into_iter().map(|row| vec![row]).collect())
     }

@@ -79,7 +79,14 @@ pub fn run_oof_classification(
         let fold_x_val = select_rows(x_train_raw, &fold.val_idx);
 
         let per_member = run_members_classification(
-            model, &fold_x_train, &fold_y_train, &fold_x_val, cat_mask, n_classes, configs, p.outlier_threshold,
+            model,
+            &fold_x_train,
+            &fold_y_train,
+            &fold_x_val,
+            cat_mask,
+            n_classes,
+            configs,
+            p.outlier_threshold,
             p.batch_size,
         )?;
         for (m, member_out) in per_member.into_iter().enumerate() {
@@ -111,7 +118,14 @@ pub fn run_oof_regression(
         let fold_x_val = select_rows(x_train_raw, &fold.val_idx);
 
         let per_member = run_members_regression(
-            model, &fold_x_train, &fold_y_train, &fold_x_val, cat_mask, configs, p.outlier_threshold, p.batch_size,
+            model,
+            &fold_x_train,
+            &fold_y_train,
+            &fold_x_val,
+            cat_mask,
+            configs,
+            p.outlier_threshold,
+            p.batch_size,
         )?;
         for (m, member_out) in per_member.into_iter().enumerate() {
             for (local_idx, &orig_idx) in fold.val_idx.iter().enumerate() {

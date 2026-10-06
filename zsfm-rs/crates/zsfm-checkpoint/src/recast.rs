@@ -18,7 +18,11 @@ use crate::read::{load_checkpoint, LoadOptions};
 pub fn recast(input: &Path, output: &Path, dtype: GGMLType) -> Result<()> {
     let ckpt = load_checkpoint(&[input.to_path_buf()], &LoadOptions::default())
         .with_context(|| format!("load checkpoint {}", input.display()))?;
-    anyhow::ensure!(!ckpt.tensors.is_empty(), "checkpoint {} contains no tensors", input.display());
+    anyhow::ensure!(
+        !ckpt.tensors.is_empty(),
+        "checkpoint {} contains no tensors",
+        input.display()
+    );
 
     let mut writer = GGUFWriter::new();
     for (k, v) in ckpt.metadata {
@@ -37,8 +41,8 @@ pub fn recast(input: &Path, output: &Path, dtype: GGMLType) -> Result<()> {
         } else {
             dtype
         };
-        let data =
-            cast::cast_data(&t.data, t.dtype, dst).with_context(|| format!("tensor {}: cast failed", t.name))?;
+        let data = cast::cast_data(&t.data, t.dtype, dst)
+            .with_context(|| format!("tensor {}: cast failed", t.name))?;
         let gguf_shape: Vec<u64> = t.shape.iter().rev().copied().collect();
         writer.add_tensor(t.name.clone(), gguf_shape, dst, data);
     }

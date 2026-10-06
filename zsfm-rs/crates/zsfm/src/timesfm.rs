@@ -1,33 +1,15 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use crate::common::DtypeArg;
 use anyhow::{bail, Context, Result};
-use clap::{Subcommand, ValueEnum};
+use clap::Subcommand;
 
 use zsfm_core::ForecastOutput;
 use zsfm_gguf::GGMLType;
 use zsfm_timesfm::config::TimesFMConfig;
 use zsfm_timesfm::convert::{convert, ConvertOptions};
 use zsfm_timesfm::infer::TimesFMModel;
-
-/// BF16 is deliberately not offered here: candle 0.8's GGUF reader (used by every
-/// model's own `infer` loader) can't parse ggml dtype 30, so a bf16-converted file
-/// would fail to load right back through this same model's `infer` command. The
-/// format-agnostic `zsfm convert`/`zsfm inspect` path supports BF16 for interop with
-/// other GGUF consumers; this per-model path only offers dtypes every `infer` here
-/// can actually load.
-#[derive(Clone, ValueEnum)]
-pub enum DtypeArg { F32, F16, Q8 }
-
-impl From<DtypeArg> for GGMLType {
-    fn from(d: DtypeArg) -> Self {
-        match d {
-            DtypeArg::F32 => GGMLType::F32,
-            DtypeArg::F16 => GGMLType::F16,
-            DtypeArg::Q8  => GGMLType::Q8_0,
-        }
-    }
-}
 
 #[derive(Subcommand)]
 pub enum Command {
@@ -66,9 +48,7 @@ pub enum Command {
     },
     /// Print all tensor names in a local checkpoint file (safetensors, PyTorch
     /// pickle, GGUF, or npy/npz — format auto-detected).
-    InspectTensors {
-        path: PathBuf,
-    },
+    InspectTensors { path: PathBuf },
     /// Run inference on a time series. Univariate only; the architecture is fixed, so no
     /// `--config` is needed.
     ///
@@ -100,15 +80,34 @@ pub enum Command {
 
 pub async fn run(command: Command) -> Result<()> {
     match command {
-        Command::Delete { model, model_dir, output } => {
+        Command::Delete {
+            model,
+            model_dir,
+            output,
+        } => {
             let canonical = zsfm_hub::canonical_gguf_path(&model_dir, &model);
             crate::common::delete_cached_model(&canonical, output.as_deref())?;
         }
         Command::Upload { repo, token, root } => {
             zsfm_hub::upload_repo(&repo, &token, &root).await?;
         }
-        Command::Convert { model, output, dtype, token, model_dir, redownload } => {
-            cmd_convert(&model, &output, dtype.into(), token.as_deref(), &model_dir, redownload).await?;
+        Command::Convert {
+            model,
+            output,
+            dtype,
+            token,
+            model_dir,
+            redownload,
+        } => {
+            cmd_convert(
+                &model,
+                &output,
+                dtype.into(),
+                token.as_deref(),
+                &model_dir,
+                redownload,
+            )
+            .await?;
         }
         Command::InspectTensors { path } => crate::common::inspect_tensors(&path)?,
         Command::Infer { gguf } => cmd_infer(&gguf)?,
@@ -125,21 +124,26 @@ async fn cmd_convert(
     redownload: bool,
 ) -> Result<()> {
     let canonical = zsfm_hub::canonical_gguf_path(model_dir, model);
-    if canonical.exists() && !redownload {
-        println!("Using cached F32 GGUF at {} …", canonical.display());
-        zsfm_checkpoint::recast(&canonical, output, output_dtype)?;
-        println!("Wrote {}", output.display());
+    if crate::common::try_recast_from_cache(&canonical, output, output_dtype, redownload)? {
         return Ok(());
     }
 
-    println!("Downloading {model} into {} …", model_dir.display());
+    eprintln!("Downloading {model} into {} …", model_dir.display());
     let files = zsfm_hub::download_model(model, token, model_dir)
         .await
         .context("download failed")?;
     let config = TimesFMConfig::new();
 
-    convert(model, &files, &config, &ConvertOptions { output_dtype: GGMLType::F32 }, &canonical)?;
-    println!("Wrote canonical F32 GGUF to {} …", canonical.display());
+    convert(
+        model,
+        &files,
+        &config,
+        &ConvertOptions {
+            output_dtype: GGMLType::F32,
+        },
+        &canonical,
+    )?;
+    eprintln!("Wrote canonical F32 GGUF to {} …", canonical.display());
     files.cleanup_weights();
 
     if let Some(parent) = output.parent() {
@@ -149,22 +153,22 @@ async fn cmd_convert(
         }
     }
     zsfm_checkpoint::recast(&canonical, output, output_dtype)?;
-    println!("Wrote {}", output.display());
+    eprintln!("Wrote {}", output.display());
     Ok(())
 }
 
 fn cmd_infer(gguf_path: &PathBuf) -> Result<()> {
-    use std::io::Read;
-    let mut buf = String::new();
-    std::io::stdin().read_to_string(&mut buf).context("read stdin")?;
+    let buf = zsfm_core::read_stdin_limited()?;
     let req: serde_json::Value = serde_json::from_str(&buf).context("parse JSON input")?;
     let contexts = zsfm_core::parse_mv_contexts(req["context"].clone())?;
-    let horizon: usize = req["horizon"].as_u64().context("horizon must be a positive integer")? as usize;
+    let horizon = zsfm_core::parse_horizon(&req)?;
 
     eprintln!("Loading model from {} …", gguf_path.display());
     let model = TimesFMModel::load(gguf_path).context("load model")?;
 
-    let quantile_labels = ["0.10", "0.20", "0.30", "0.40", "0.50", "0.60", "0.70", "0.80", "0.90"];
+    let quantile_labels = [
+        "0.10", "0.20", "0.30", "0.40", "0.50", "0.60", "0.70", "0.80", "0.90",
+    ];
 
     let mut fc_outputs = Vec::new();
     let mut total_ctx = 0usize;
@@ -178,7 +182,11 @@ fn cmd_infer(gguf_path: &PathBuf) -> Result<()> {
             bail!("context series must not be empty");
         }
         total_ctx += ctx.len();
-        eprintln!("Running forecast (context={}, horizon={}) …", ctx.len(), horizon);
+        eprintln!(
+            "Running forecast (context={}, horizon={}) …",
+            ctx.len(),
+            horizon
+        );
         // outputs[0] = point forecast, outputs[1..9] = quantile forecasts q0.1..q0.9
         let outputs = model.forecast(ctx, horizon)?;
 
@@ -191,6 +199,9 @@ fn cmd_infer(gguf_path: &PathBuf) -> Result<()> {
         }
         fc_outputs.push(ForecastOutput::Univariate { point, quantiles });
     }
-    println!("{}", zsfm_core::forecast_response_json("timesfm", total_ctx, horizon, fc_outputs)?);
+    println!(
+        "{}",
+        zsfm_core::forecast_response_json("timesfm", total_ctx, horizon, fc_outputs)?
+    );
     Ok(())
 }

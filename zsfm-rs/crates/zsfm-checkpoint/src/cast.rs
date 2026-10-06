@@ -32,9 +32,9 @@ impl SrcDtype {
 
 /// Cast raw little-endian tensor bytes from `src` to `dst`.
 ///
-/// Same-dtype casts are byte-for-byte passthrough. F32→BF16 truncates the
-/// mantissa (matching the existing converters); everything routed through F32
-/// uses exact widening.
+/// Same-dtype casts are byte-for-byte passthrough. F32→F16 rounds to nearest
+/// even; F32→BF16 rounds to nearest even with NaN preservation; everything
+/// routed through F32 uses exact widening.
 pub fn cast_data(data: &[u8], src: SrcDtype, dst: GGMLType) -> anyhow::Result<Vec<u8>> {
     // Passthrough when the representation already matches.
     match (src, dst) {
@@ -53,10 +53,22 @@ pub fn cast_data(data: &[u8], src: SrcDtype, dst: GGMLType) -> anyhow::Result<Ve
             .collect()),
         GGMLType::BF16 => Ok(f32_values
             .iter()
-            .flat_map(|&v| ((v.to_bits() >> 16) as u16).to_le_bytes())
+            .flat_map(|&v| f32_to_bf16_bits(v).to_le_bytes())
             .collect()),
         GGMLType::Q8_0 => quantize_q8_0(&f32_values),
     }
+}
+
+/// Round-to-nearest-even F32→BF16 with NaN preservation.
+pub fn f32_to_bf16_bits(v: f32) -> u16 {
+    let bits = v.to_bits();
+    // Preserve NaN payload as quiet NaN.
+    if (bits & 0x7f80_0000) == 0x7f80_0000 && (bits & 0x007f_ffff) != 0 {
+        return 0x7fc0;
+    }
+    // Round to nearest even: add 0x7fff + LSB of result.
+    let rounding = 0x7fff + ((bits >> 16) & 1);
+    ((bits + rounding) >> 16) as u16
 }
 
 /// Decode raw bytes of `src` dtype into f32 values (exact for all three sources).
@@ -86,6 +98,32 @@ pub fn decode_to_f32(data: &[u8], src: SrcDtype) -> anyhow::Result<Vec<f32>> {
 
 pub fn f32_to_bytes(vals: &[f32]) -> Vec<u8> {
     vals.iter().flat_map(|v| v.to_le_bytes()).collect()
+}
+
+/// Q8_0 block-quantization fallback: tensors whose innermost dim or total
+/// element count is not a multiple of 32 stay F32. Centralizes the
+/// `innermost % 32` check duplicated in `generic.rs`, the Python
+/// `write_generic_gguf`, and every per-model `convert.rs`.
+pub fn q8_dst_or_fallback(shape: &[u64], out_dtype: GGMLType) -> (GGMLType, bool) {
+    if out_dtype == GGMLType::Q8_0 {
+        let n_elems: u64 = shape.iter().product();
+        let innermost = shape.last().copied().unwrap_or(1);
+        if innermost % 32 != 0 || n_elems % 32 != 0 {
+            return (GGMLType::F32, true);
+        }
+    }
+    (out_dtype, false)
+}
+
+/// Cast with automatic Q8_0 fallback. Returns `(bytes, actual_dtype, fell_back)`.
+pub fn cast_with_q8_fallback(
+    data: &[u8],
+    src: SrcDtype,
+    shape: &[u64],
+    out_dtype: GGMLType,
+) -> anyhow::Result<(Vec<u8>, GGMLType, bool)> {
+    let (dst, fell_back) = q8_dst_or_fallback(shape, out_dtype);
+    Ok((cast_data(data, src, dst)?, dst, fell_back))
 }
 
 pub fn quantize_q8_0(values: &[f32]) -> anyhow::Result<Vec<u8>> {
@@ -138,10 +176,29 @@ pub fn f32_to_f16_bits(v: f32) -> u16 {
         if new_exp < -10 {
             return sign;
         }
-        let m = (mantissa | 0x0080_0000) >> (1 - new_exp);
-        return sign | (m >> 13) as u16;
+        // Round subnormals to nearest even.
+        let shift = 1 - new_exp;
+        let m = mantissa | 0x0080_0000;
+        let remainder = m & ((1 << shift) - 1);
+        let halfway = 1 << (shift - 1);
+        let mut rounded = m >> shift;
+        if remainder > halfway as u32 || (remainder == halfway as u32 && (rounded & 1) == 1) {
+            rounded += 1;
+        }
+        return sign | (rounded >> 13) as u16;
     }
-    sign | ((new_exp as u16) << 10) | (mantissa >> 13) as u16
+    // Round normal mantissa to nearest even: add 0xFFF + LSB then truncate.
+    let lsb = (mantissa >> 13) & 1;
+    let rounded = mantissa + 0xFFF + lsb;
+    if rounded & 0x0080_0000 != 0 {
+        // Mantissa overflow carries into exponent.
+        let carried_exp = new_exp + 1;
+        if carried_exp >= 31 {
+            return sign | 0x7C00;
+        }
+        return sign | ((carried_exp as u16) << 10);
+    }
+    sign | ((new_exp as u16) << 10) | (rounded >> 13) as u16
 }
 
 pub fn f16_to_f32(bits: u16) -> f32 {
@@ -182,17 +239,30 @@ mod tests {
     #[test]
     fn passthrough_same_dtype() {
         let bytes: Vec<u8> = (0..16).collect();
-        assert_eq!(cast_data(&bytes, SrcDtype::F32, GGMLType::F32).unwrap(), bytes);
-        assert_eq!(cast_data(&bytes, SrcDtype::F16, GGMLType::F16).unwrap(), bytes);
-        assert_eq!(cast_data(&bytes, SrcDtype::BF16, GGMLType::BF16).unwrap(), bytes);
+        assert_eq!(
+            cast_data(&bytes, SrcDtype::F32, GGMLType::F32).unwrap(),
+            bytes
+        );
+        assert_eq!(
+            cast_data(&bytes, SrcDtype::F16, GGMLType::F16).unwrap(),
+            bytes
+        );
+        assert_eq!(
+            cast_data(&bytes, SrcDtype::BF16, GGMLType::BF16).unwrap(),
+            bytes
+        );
     }
 
     #[test]
-    fn f32_to_bf16_truncates() {
+    fn f32_to_bf16_rounds() {
         let v = 1.2345678f32;
         let out = cast_data(&v.to_le_bytes(), SrcDtype::F32, GGMLType::BF16).unwrap();
         let bits = u16::from_le_bytes([out[0], out[1]]);
-        assert_eq!(bits, (v.to_bits() >> 16) as u16);
+        assert_eq!(bits, f32_to_bf16_bits(v));
+        // NaN stays NaN.
+        let nan_bits = f32_to_bf16_bits(f32::NAN);
+        assert_eq!(nan_bits & 0x7f80, 0x7f80);
+        assert_ne!(nan_bits & 0x007f, 0);
     }
 
     #[test]

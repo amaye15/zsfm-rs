@@ -62,8 +62,8 @@ pub fn load_checkpoint(inputs: &[PathBuf], opts: &LoadOptions) -> Result<Checkpo
     let mut metadata: Vec<(String, GGUFMetaValue)> = Vec::new();
 
     for path in inputs {
-        let ckpt = load_one(path, opts)
-            .with_context(|| format!("load checkpoint {}", path.display()))?;
+        let ckpt =
+            load_one(path, opts).with_context(|| format!("load checkpoint {}", path.display()))?;
         tensors.extend(ckpt.tensors);
         metadata.extend(ckpt.metadata);
     }
@@ -111,7 +111,10 @@ fn load_one(path: &Path, opts: &LoadOptions) -> Result<Checkpoint> {
 
     if path.is_dir() {
         if path.join("saved_model.pb").exists() {
-            bail!("{} is a TensorFlow SavedModel directory. {TF_BUNDLE_HELP}", path.display());
+            bail!(
+                "{} is a TensorFlow SavedModel directory. {TF_BUNDLE_HELP}",
+                path.display()
+            );
         }
         bail!(
             "{} is a directory — pass a checkpoint file (or for sharded safetensors, \
@@ -120,7 +123,10 @@ fn load_one(path: &Path, opts: &LoadOptions) -> Result<Checkpoint> {
         );
     }
     if ext == "index" || fname.contains(".data-00") {
-        bail!("{} looks like a TensorFlow checkpoint file. {TF_BUNDLE_HELP}", path.display());
+        bail!(
+            "{} looks like a TensorFlow checkpoint file. {TF_BUNDLE_HELP}",
+            path.display()
+        );
     }
 
     if fname.ends_with(".safetensors.index.json") {
@@ -202,9 +208,17 @@ fn load_safetensors(path: &Path) -> Result<Checkpoint> {
                 (SrcDtype::F32, f32_to_bytes(&t))
             }
         };
-        tensors.push(RawTensor { name: name.to_string(), shape, dtype, data });
+        tensors.push(RawTensor {
+            name: name.to_string(),
+            shape,
+            dtype,
+            data,
+        });
     }
-    Ok(Checkpoint { tensors, metadata: Vec::new() })
+    Ok(Checkpoint {
+        tensors,
+        metadata: Vec::new(),
+    })
 }
 
 fn safetensors_view_to_f32(
@@ -266,7 +280,10 @@ fn load_safetensors_index(path: &Path) -> Result<Checkpoint> {
             .with_context(|| format!("load shard {}", shard_path.display()))?;
         tensors.extend(ckpt.tensors);
     }
-    Ok(Checkpoint { tensors, metadata: Vec::new() })
+    Ok(Checkpoint {
+        tensors,
+        metadata: Vec::new(),
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -300,7 +317,10 @@ fn load_pickle(path: &Path, opts: &LoadOptions) -> Result<Checkpoint> {
     for (name, tensor) in &named {
         tensors.push(tensor_to_raw(name, tensor)?);
     }
-    Ok(Checkpoint { tensors, metadata: Vec::new() })
+    Ok(Checkpoint {
+        tensors,
+        metadata: Vec::new(),
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -310,7 +330,11 @@ fn load_pickle(path: &Path, opts: &LoadOptions) -> Result<Checkpoint> {
 fn load_npz(path: &Path) -> Result<Checkpoint> {
     let npz = candle_core::npy::NpzTensors::new(path)
         .with_context(|| format!("read npz {}", path.display()))?;
-    let mut names = npz.names().into_iter().map(String::from).collect::<Vec<_>>();
+    let mut names = npz
+        .names()
+        .into_iter()
+        .map(String::from)
+        .collect::<Vec<_>>();
     names.sort();
     let mut tensors = Vec::with_capacity(names.len());
     for name in &names {
@@ -319,7 +343,10 @@ fn load_npz(path: &Path) -> Result<Checkpoint> {
             .with_context(|| format!("npz entry {name} missing"))?;
         tensors.push(tensor_to_raw(name, &t)?);
     }
-    Ok(Checkpoint { tensors, metadata: Vec::new() })
+    Ok(Checkpoint {
+        tensors,
+        metadata: Vec::new(),
+    })
 }
 
 fn load_npy(path: &Path) -> Result<Checkpoint> {
@@ -329,7 +356,10 @@ fn load_npy(path: &Path) -> Result<Checkpoint> {
         .and_then(|s| s.to_str())
         .unwrap_or("tensor")
         .to_string();
-    Ok(Checkpoint { tensors: vec![tensor_to_raw(&name, &t)?], metadata: Vec::new() })
+    Ok(Checkpoint {
+        tensors: vec![tensor_to_raw(&name, &t)?],
+        metadata: Vec::new(),
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -342,9 +372,8 @@ fn load_npy(path: &Path) -> Result<Checkpoint> {
 fn load_gguf(path: &Path) -> Result<Checkpoint> {
     match load_gguf_minimal(path) {
         Ok(ckpt) => Ok(ckpt),
-        Err(minimal_err) => load_gguf_candle(path).with_context(|| {
-            format!("minimal GGUF reader failed first with: {minimal_err:#}")
-        }),
+        Err(minimal_err) => load_gguf_candle(path)
+            .with_context(|| format!("minimal GGUF reader failed first with: {minimal_err:#}")),
     }
 }
 
@@ -367,9 +396,17 @@ fn load_gguf_minimal(path: &Path) -> Result<Checkpoint> {
                 f32_to_bytes(&gguf.tensor_f32(&mut file, info)?),
             ),
         };
-        tensors.push(RawTensor { name: info.name.clone(), shape, dtype, data });
+        tensors.push(RawTensor {
+            name: info.name.clone(),
+            shape,
+            dtype,
+            data,
+        });
     }
-    Ok(Checkpoint { tensors, metadata: gguf.metadata })
+    Ok(Checkpoint {
+        tensors,
+        metadata: gguf.metadata,
+    })
 }
 
 fn load_gguf_candle(path: &Path) -> Result<Checkpoint> {
@@ -420,13 +457,9 @@ fn gguf_value_to_meta(v: &gguf_file::Value) -> Option<GGUFMetaValue> {
         V::String(x) => GGUFMetaValue::String(x.clone()),
         V::Array(items) => {
             if items.iter().all(|i| matches!(i, V::U32(_))) {
-                GGUFMetaValue::ArrayUint32(
-                    items.iter().filter_map(|i| i.to_u32().ok()).collect(),
-                )
+                GGUFMetaValue::ArrayUint32(items.iter().filter_map(|i| i.to_u32().ok()).collect())
             } else if items.iter().all(|i| matches!(i, V::F32(_))) {
-                GGUFMetaValue::ArrayFloat32(
-                    items.iter().filter_map(|i| i.to_f32().ok()).collect(),
-                )
+                GGUFMetaValue::ArrayFloat32(items.iter().filter_map(|i| i.to_f32().ok()).collect())
             } else if items.iter().all(|i| matches!(i, V::String(_))) {
                 GGUFMetaValue::ArrayString(
                     items
@@ -454,14 +487,18 @@ fn tensor_to_raw(name: &str, t: &Tensor) -> Result<RawTensor> {
             let vals = flat.to_vec1::<half::f16>()?;
             (
                 SrcDtype::F16,
-                vals.iter().flat_map(|v| v.to_bits().to_le_bytes()).collect(),
+                vals.iter()
+                    .flat_map(|v| v.to_bits().to_le_bytes())
+                    .collect(),
             )
         }
         DType::BF16 => {
             let vals = flat.to_vec1::<half::bf16>()?;
             (
                 SrcDtype::BF16,
-                vals.iter().flat_map(|v| v.to_bits().to_le_bytes()).collect(),
+                vals.iter()
+                    .flat_map(|v| v.to_bits().to_le_bytes())
+                    .collect(),
             )
         }
         other => {
@@ -470,7 +507,12 @@ fn tensor_to_raw(name: &str, t: &Tensor) -> Result<RawTensor> {
             (SrcDtype::F32, f32_to_bytes(&vals))
         }
     };
-    Ok(RawTensor { name: name.to_string(), shape, dtype, data })
+    Ok(RawTensor {
+        name: name.to_string(),
+        shape,
+        dtype,
+        data,
+    })
 }
 
 #[cfg(test)]

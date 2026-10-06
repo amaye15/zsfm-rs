@@ -6,6 +6,7 @@ use serde::Deserialize;
 use tokio::io::AsyncWriteExt;
 
 use crate::http::{build_client, HF_BASE};
+use crate::log::{log_status, HubError};
 
 /// How many shard files to fetch concurrently. HF's CDN comfortably serves this many
 /// parallel range/GET requests per client; higher offers diminishing returns and risks
@@ -39,7 +40,41 @@ impl ModelFiles {
 /// from this cached GGUF to whatever dtype was requested instead of re-downloading and
 /// re-converting from HuggingFace.
 pub fn canonical_gguf_path(model_dir: &Path, repo_id: &str) -> PathBuf {
-    model_dir.join(repo_id.replace('/', "__")).join("model-f32.gguf")
+    model_dir
+        .join(repo_id.replace('/', "__"))
+        .join("model-f32.gguf")
+}
+
+/// Variant-aware cache path for multi-task repos (Mitra, TabFM):
+/// `<model_dir>/<variant>-<task>/<owner>__<name>/model-f32.gguf`.
+/// Centralizes the `format!("mitra-{task}")` logic duplicated in CLI + Python.
+pub fn variant_gguf_path(
+    model_dir: &Path,
+    variant_prefix: &str,
+    task: &str,
+    repo_id: &str,
+) -> PathBuf {
+    canonical_gguf_path(&model_dir.join(format!("{variant_prefix}-{task}")), repo_id)
+}
+
+/// Shared cache-hit path for CLI + Python: recast from canonical F32 GGUF when
+/// present. Returns `true` when the caller can return early.
+pub fn try_recast_from_cache(
+    canonical: &Path,
+    output: &Path,
+    dtype: zsfm_gguf::GGMLType,
+    redownload: bool,
+) -> anyhow::Result<bool> {
+    if canonical.exists() && !redownload {
+        log_status(&format!(
+            "Using cached F32 GGUF at {} …",
+            canonical.display()
+        ));
+        zsfm_checkpoint::recast(canonical, output, dtype)?;
+        log_status(&format!("Wrote {}", output.display()));
+        return Ok(true);
+    }
+    Ok(false)
 }
 
 /// Download (or locate from cache) `config.json` + `model.safetensors[.index.json]`
@@ -140,8 +175,27 @@ pub(crate) async fn fetch_file(
 ) -> anyhow::Result<PathBuf> {
     let dest = dest_dir.join(relpath.replace('/', "_"));
     if dest.exists() {
-        println!("  (cached) {relpath}");
-        return Ok(dest);
+        // Validate legacy cache hits against the `.size` sidecar written on
+        // first download; a mismatch means corruption → re-download.
+        let sidecar = dest.with_extension("size");
+        if let Ok(expect) = std::fs::read_to_string(&sidecar) {
+            if let Ok(expect) = expect.trim().parse::<u64>() {
+                if let Ok(actual) = std::fs::metadata(&dest).map(|m| m.len()) {
+                    if actual != expect {
+                        eprintln!(
+                            "  (cached {relpath} size mismatch: got {actual}, want {expect} → re-downloading)"
+                        );
+                        std::fs::remove_file(&dest)?;
+                    } else {
+                        log_status(&format!("  (cached) {relpath}"));
+                        return Ok(dest);
+                    }
+                }
+            }
+        } else {
+            log_status(&format!("  (cached) {relpath}"));
+            return Ok(dest);
+        }
     }
 
     let dest_tmp = dest.with_extension("tmp");
@@ -156,18 +210,40 @@ pub(crate) async fn fetch_file(
     let mut req = client.get(&url);
     if already > 0 {
         req = req.header(reqwest::header::RANGE, format!("bytes={already}-"));
-        println!("  Resuming {relpath} from {} MB …", already / 1_000_000);
+        log_status(&format!(
+            "  Resuming {relpath} from {} MB …",
+            already / 1_000_000
+        ));
     }
 
-    let response = req
-        .send()
-        .await
-        .with_context(|| format!("GET {url}"))?;
+    let response = req.send().await.with_context(|| format!("GET {url}"))?;
 
     let status = response.status();
     // 206 = partial content (resume accepted), 200 = full content
     if !status.is_success() {
         anyhow::bail!("HTTP {status} fetching {relpath} from {repo_id}");
+    }
+
+    // Verify the server honored the Range offset when it claims 206.
+    if status == reqwest::StatusCode::PARTIAL_CONTENT && already > 0 {
+        if let Some(range) = response.headers().get(reqwest::header::CONTENT_RANGE) {
+            let range_str = range.to_str().unwrap_or("");
+            // Expected form: `bytes <start>-<end>/<total>`.
+            if let Some(start) = range_str
+                .strip_prefix("bytes ")
+                .and_then(|s| s.split('-').next())
+                .and_then(|s| s.parse::<u64>().ok())
+            {
+                if start != already {
+                    return Err(HubError::ResumeMismatch {
+                        relpath: relpath.to_string(),
+                        local: already,
+                        server: start,
+                    }
+                    .into());
+                }
+            }
+        }
     }
 
     // If server ignored the Range header and sent 200, truncate the tmp file.
@@ -185,10 +261,8 @@ pub(crate) async fn fetch_file(
         (f, 0)
     };
 
-    let total = response
-        .content_length()
-        .map(|n| n + resume_offset)
-        .unwrap_or(0);
+    let content_len = response.content_length();
+    let total = content_len.map(|n| n + resume_offset).unwrap_or(0);
 
     let pb = indicatif::ProgressBar::new(total);
     let pb = match mp {
@@ -199,7 +273,7 @@ pub(crate) async fn fetch_file(
         indicatif::ProgressStyle::with_template(
             "  {msg} [{bar:40}] {bytes}/{total_bytes} ({bytes_per_sec}, eta {eta})",
         )
-        .unwrap()
+        .expect("valid progress template")
         .progress_chars("=>-"),
     );
     pb.set_message(relpath.to_string());
@@ -208,20 +282,58 @@ pub(crate) async fn fetch_file(
     {
         let mut file = file;
         let mut stream = response.bytes_stream();
+        let mut written: u64 = 0;
         while let Some(chunk) = stream.next().await {
             let chunk = chunk.with_context(|| format!("stream chunk of {relpath}"))?;
             pb.inc(chunk.len() as u64);
+            written += chunk.len() as u64;
             file.write_all(&chunk)
                 .await
                 .with_context(|| format!("write chunk to {}", dest_tmp.display()))?;
+        }
+        // When the server reports a length, the byte count must match.
+        if let Some(len) = content_len {
+            if written != len {
+                return Err(HubError::SizeMismatch {
+                    relpath: relpath.to_string(),
+                    expected: len,
+                    actual: written,
+                }
+                .into());
+            }
         }
     }
 
     pb.finish_and_clear();
     std::fs::rename(&dest_tmp, &dest)
         .with_context(|| format!("rename tmp → {}", dest.display()))?;
+    // Record final size for future cache validation + log SHA256 so users can
+    // compare against the Hub file page when debugging corruption.
+    if let Ok(meta) = std::fs::metadata(&dest) {
+        let _ = std::fs::write(dest.with_extension("size"), meta.len().to_string());
+        if let Ok(sha) = sha256_file(&dest) {
+            log_status(&format!("  sha256({relpath}) = {sha}"));
+        }
+    }
 
     Ok(dest)
+}
+
+/// Streaming SHA256 without loading multi-GB files into memory.
+fn sha256_file(path: &Path) -> anyhow::Result<String> {
+    use sha2::Digest;
+    use std::io::Read;
+    let mut f = std::fs::File::open(path)?;
+    let mut h = sha2::Sha256::new();
+    let mut buf = [0u8; 1 << 20];
+    loop {
+        let n = f.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        h.update(&buf[..n]);
+    }
+    Ok(format!("{:x}", h.finalize()))
 }
 
 /// Parse the shard index JSON and download every unique shard (joined under `prefix`).
@@ -238,11 +350,35 @@ async fn resolve_shards(
     }
 
     let raw = std::fs::read_to_string(index_path).context("read index json")?;
+    anyhow::ensure!(
+        raw.len() <= 16 << 20,
+        "shard index too large: {} bytes (max 16 MiB)",
+        raw.len()
+    );
     let index: Index = serde_json::from_str(&raw).context("parse index json")?;
 
     let mut shard_names: Vec<String> = index.weight_map.into_values().collect();
     shard_names.sort();
     shard_names.dedup();
+    anyhow::ensure!(
+        shard_names.len() <= 512,
+        "too many shards: {} (max 512)",
+        shard_names.len()
+    );
+    // Flattened filenames must stay unique — `a/b.safetensors` and `a_b.safetensors`
+    // would otherwise overwrite each other in the cache dir.
+    {
+        let mut flat: Vec<String> = shard_names
+            .iter()
+            .map(|n| joined(prefix, n).replace('/', "_"))
+            .collect();
+        flat.sort();
+        for w in flat.windows(2) {
+            if w[0] == w[1] {
+                return Err(HubError::ShardCollision(w[0].clone()).into());
+            }
+        }
+    }
 
     // Fetch up to SHARD_DOWNLOAD_CONCURRENCY shards at once — each is an independent file,
     // so there's no reason to serialize what's fundamentally a bandwidth-bound operation.
@@ -255,7 +391,7 @@ async fn resolve_shards(
             let rel = joined(prefix, name);
             let multi = &multi;
             async move {
-                println!("  Fetching {rel} …");
+                log_status(&format!("  Fetching {rel} …"));
                 fetch_file(client, repo_id, &rel, cache_dir, Some(multi))
                     .await
                     .map(|p| (i, p))

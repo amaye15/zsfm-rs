@@ -66,7 +66,11 @@ impl LabelEncoder {
                     return -1.0;
                 }
                 let key = value_key(v);
-                self.classes.iter().position(|c| c == &key).map(|i| i as f64).unwrap_or(-1.0)
+                self.classes
+                    .iter()
+                    .position(|c| c == &key)
+                    .map(|i| i as f64)
+                    .unwrap_or(-1.0)
             })
             .collect()
     }
@@ -120,7 +124,11 @@ mod tests {
 
     #[test]
     fn test_missing_values() {
-        let col = vec![Value::String("a".into()), Value::Null, Value::String("a".into())];
+        let col = vec![
+            Value::String("a".into()),
+            Value::Null,
+            Value::String("a".into()),
+        ];
         let enc = CategoricalOrdinalEncoder::fit(&col);
         assert_eq!(enc.transform(&col), vec![0.0, -1.0, 0.0]);
     }

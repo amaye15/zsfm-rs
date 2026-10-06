@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use crate::common::DtypeArg;
 use anyhow::Context;
 use clap::{Subcommand, ValueEnum};
 use serde::Serialize;
@@ -56,9 +57,7 @@ pub enum Command {
     },
     /// Print all tensor names in a local checkpoint file (safetensors, PyTorch
     /// pickle, GGUF, or npy/npz — format auto-detected).
-    InspectTensors {
-        path: PathBuf,
-    },
+    InspectTensors { path: PathBuf },
     /// Upload source + GGUF files to HuggingFace Hub.
     Upload {
         #[arg(short, long, default_value = "amaye15/tabfm-gguf")]
@@ -81,7 +80,10 @@ pub enum Command {
     Infer {
         #[arg(short, long)]
         gguf: PathBuf,
-        #[arg(long, default_value = "models/tabfm-classification/google__tabfm-1.0.0-pytorch/classification_config.json")]
+        #[arg(
+            long,
+            default_value = "models/tabfm-classification/google__tabfm-1.0.0-pytorch/classification_config.json"
+        )]
         config: PathBuf,
     },
     /// Full sklearn-wrapper-equivalent pipeline: feature scaling, categorical encoding, and
@@ -104,7 +106,10 @@ pub enum Command {
     EnsemblePredict {
         #[arg(short, long)]
         gguf: PathBuf,
-        #[arg(long, default_value = "models/tabfm-classification/google__tabfm-1.0.0-pytorch/classification_config.json")]
+        #[arg(
+            long,
+            default_value = "models/tabfm-classification/google__tabfm-1.0.0-pytorch/classification_config.json"
+        )]
         config: PathBuf,
         /// Worker threads for the ensemble-member/OOF-fold parallel loops (default: rayon's own
         /// default, i.e. all logical cores, or the `RAYON_NUM_THREADS` env var if set). On some
@@ -143,29 +148,6 @@ pub enum Command {
     },
 }
 
-/// BF16 is deliberately not offered here: candle 0.8's GGUF reader (used by every
-/// model's own `infer` loader) can't parse ggml dtype 30, so a bf16-converted file
-/// would fail to load right back through this same model's `infer` command. The
-/// format-agnostic `zsfm convert`/`zsfm inspect` path supports BF16 for interop with
-/// other GGUF consumers; this per-model path only offers dtypes every `infer` here
-/// can actually load.
-#[derive(Clone, ValueEnum)]
-pub enum DtypeArg {
-    F32,
-    F16,
-    Q8,
-}
-
-impl From<DtypeArg> for GGMLType {
-    fn from(d: DtypeArg) -> Self {
-        match d {
-            DtypeArg::F32 => GGMLType::F32,
-            DtypeArg::F16 => GGMLType::F16,
-            DtypeArg::Q8 => GGMLType::Q8_0,
-        }
-    }
-}
-
 fn dtype_name(d: &DtypeArg) -> &'static str {
     match d {
         DtypeArg::F32 => "f32",
@@ -176,7 +158,12 @@ fn dtype_name(d: &DtypeArg) -> &'static str {
 
 pub async fn run(command: Command) -> anyhow::Result<()> {
     match command {
-        Command::Delete { model, task, model_dir, output } => {
+        Command::Delete {
+            model,
+            task,
+            model_dir,
+            output,
+        } => {
             let task_str = task.as_str();
             let variant_dir = model_dir.join(format!("tabfm-{task_str}"));
             let canonical = zsfm_hub::canonical_gguf_path(&variant_dir, &model);
@@ -186,55 +173,75 @@ pub async fn run(command: Command) -> anyhow::Result<()> {
             zsfm_hub::upload_repo(&repo, &token, &root).await?;
         }
 
-        Command::Convert { model, task, output, dtype, model_dir, token, redownload } => {
+        Command::Convert {
+            model,
+            task,
+            output,
+            dtype,
+            model_dir,
+            token,
+            redownload,
+        } => {
             let task_str = task.as_str();
             let variant_dir = model_dir.join(format!("tabfm-{task_str}"));
-            let output = output.unwrap_or_else(|| PathBuf::from(format!("gguf/tabfm-{task_str}-{}.gguf", dtype_name(&dtype))));
+            let output = output.unwrap_or_else(|| {
+                PathBuf::from(format!("gguf/tabfm-{task_str}-{}.gguf", dtype_name(&dtype)))
+            });
             let canonical = zsfm_hub::canonical_gguf_path(&variant_dir, &model);
 
-            if canonical.exists() && !redownload {
-                println!("Using cached F32 GGUF at {} …", canonical.display());
-                zsfm_checkpoint::recast(&canonical, &output, dtype.into())?;
-                println!("Wrote {}", output.display());
+            if crate::common::try_recast_from_cache(&canonical, &output, dtype.into(), redownload)?
+            {
                 return Ok(());
             }
 
-            println!("Downloading {model} ({task_str}) into {} …", variant_dir.display());
-            let files = zsfm_hub::download_model_prefixed(&model, task_str, token.as_deref(), &variant_dir)
-                .await
-                .context("download failed")?;
+            eprintln!(
+                "Downloading {model} ({task_str}) into {} …",
+                variant_dir.display()
+            );
+            let files =
+                zsfm_hub::download_model_prefixed(&model, task_str, token.as_deref(), &variant_dir)
+                    .await
+                    .context("download failed")?;
             let safetensors_path = files
                 .safetensors_shards
                 .first()
                 .context("no safetensors file downloaded")?;
 
-            let config_str = std::fs::read_to_string(&files.config_json).context("read config.json")?;
+            let config_str =
+                std::fs::read_to_string(&files.config_json).context("read config.json")?;
             let config = TabFMConfig::from_json(&config_str).context("parse config.json")?;
             println!(
                 "Config: is_classifier={} embed_dim={} col_blocks={} row_blocks={} icl_blocks={}",
-                config.is_classifier, config.embed_dim, config.col_num_blocks, config.row_num_blocks, config.icl_num_blocks,
+                config.is_classifier,
+                config.embed_dim,
+                config.col_num_blocks,
+                config.row_num_blocks,
+                config.icl_num_blocks,
             );
 
-            let f32_opts = ConvertOptions { output_dtype: GGMLType::F32 };
+            let f32_opts = ConvertOptions {
+                output_dtype: GGMLType::F32,
+            };
             convert(&model, safetensors_path, &config, &f32_opts, &canonical)?;
-            println!("Wrote canonical F32 GGUF to {} …", canonical.display());
+            eprintln!("Wrote canonical F32 GGUF to {} …", canonical.display());
             files.cleanup_weights();
 
             zsfm_checkpoint::recast(&canonical, &output, dtype.into())?;
-            println!("Wrote {}", output.display());
+            eprintln!("Wrote {}", output.display());
         }
 
         Command::InspectTensors { path } => crate::common::inspect_tensors(&path)?,
 
         Command::Infer { gguf, config } => {
-            use std::io::Read;
-            let mut buf = String::new();
-            std::io::stdin().read_to_string(&mut buf).context("read stdin")?;
+            let buf = zsfm_core::read_stdin_limited()?;
             let req: serde_json::Value = serde_json::from_str(&buf).context("parse JSON input")?;
 
-            let x = parse_matrix(&req["x"])?;
+            let x = zsfm_core::parse_matrix(&req["x"])?;
             let y = parse_vec_f32(&req["y"])?;
-            let train_size = req["train_size"].as_u64().context("train_size must be a non-negative integer")? as usize;
+            let train_size = req["train_size"]
+                .as_u64()
+                .context("train_size must be a non-negative integer")?
+                as usize;
             let cat_mask = if req.get("cat_mask").is_some() && !req["cat_mask"].is_null() {
                 Some(parse_vec_bool(&req["cat_mask"])?)
             } else {
@@ -242,13 +249,20 @@ pub async fn run(command: Command) -> anyhow::Result<()> {
             };
             let d = req.get("d").and_then(|v| v.as_u64()).map(|v| v as usize);
 
-            let config_str = std::fs::read_to_string(&config).with_context(|| format!("read {}", config.display()))?;
+            let config_str = std::fs::read_to_string(&config)
+                .with_context(|| format!("read {}", config.display()))?;
             let tc = TabFMConfig::from_json(&config_str).context("parse config.json")?;
 
             eprintln!("Loading model from {} …", gguf.display());
-            let model = TabFMModel::builder(&gguf).config_from(&tc).build().context("load model")?;
+            let model = TabFMModel::builder(&gguf)
+                .config_from(&tc)
+                .build()
+                .context("load model")?;
 
-            eprintln!("Running predict ({} rows, train_size={train_size}) …", x.len());
+            eprintln!(
+                "Running predict ({} rows, train_size={train_size}) …",
+                x.len()
+            );
             let out = model
                 .predict(&x, &y, train_size, cat_mask.as_deref(), d)
                 .context("predict")?;
@@ -256,16 +270,22 @@ pub async fn run(command: Command) -> anyhow::Result<()> {
             println!("{}", predict_json(tc.is_classifier, &out)?);
         }
 
-        Command::EnsemblePredict { gguf, config, threads, batch_size } => {
-            use std::io::Read;
-            let mut buf = String::new();
-            std::io::stdin().read_to_string(&mut buf).context("read stdin")?;
+        Command::EnsemblePredict {
+            gguf,
+            config,
+            threads,
+            batch_size,
+        } => {
+            let buf = zsfm_core::read_stdin_limited()?;
             let req: serde_json::Value = serde_json::from_str(&buf).context("parse JSON input")?;
 
             let x_train = parse_matrix_value(&req["x_train"])?;
             let x_test = parse_matrix_value(&req["x_test"])?;
             let cat_mask = parse_vec_bool(&req["cat_mask"])?;
-            let n_estimators = req.get("n_estimators").and_then(|v| v.as_u64()).unwrap_or(32) as usize;
+            let n_estimators = req
+                .get("n_estimators")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(32) as usize;
             let norm_methods = match req.get("norm_methods") {
                 Some(serde_json::Value::Array(arr)) => arr
                     .iter()
@@ -273,26 +293,67 @@ pub async fn run(command: Command) -> anyhow::Result<()> {
                     .collect::<anyhow::Result<Vec<_>>>()?,
                 _ => vec![NormMethod::None, NormMethod::Power],
             };
-            let class_shift = req.get("class_shift").and_then(|v| v.as_bool()).unwrap_or(true);
-            let outlier_threshold = req.get("outlier_threshold").and_then(|v| v.as_f64()).unwrap_or(4.0);
-            let softmax_temperature = req.get("softmax_temperature").and_then(|v| v.as_f64()).unwrap_or(0.9);
-            let average_logits = req.get("average_logits").and_then(|v| v.as_bool()).unwrap_or(true);
-            let random_state = req.get("random_state").and_then(|v| v.as_u64()).unwrap_or(42);
-            let binary_calibration =
-                req.get("binary_calibration_method").and_then(|v| v.as_str()).map(|s| s == "platt").unwrap_or(false);
-            let multiclass_calibration =
-                req.get("multiclass_calibration_method").and_then(|v| v.as_str()).map(|s| s == "vector").unwrap_or(false);
-            let num_folds_for_cv = req.get("num_folds_for_cv").and_then(|v| v.as_u64()).unwrap_or(5) as usize;
-            let enable_nnls = req.get("enable_nnls").and_then(|v| v.as_bool()).unwrap_or(false);
-            let nnls_beta = req.get("nnls_beta").and_then(|v| v.as_f64()).unwrap_or(0.75);
-            let calibration_lambda = req.get("calibration_lambda").and_then(|v| v.as_f64()).unwrap_or(1e-2);
-            let batch_size = batch_size.or_else(|| req.get("batch_size").and_then(|v| v.as_u64()).map(|v| v as usize));
+            let class_shift = req
+                .get("class_shift")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true);
+            let outlier_threshold = req
+                .get("outlier_threshold")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(4.0);
+            let softmax_temperature = req
+                .get("softmax_temperature")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.9);
+            let average_logits = req
+                .get("average_logits")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true);
+            let random_state = req
+                .get("random_state")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(42);
+            let binary_calibration = req
+                .get("binary_calibration_method")
+                .and_then(|v| v.as_str())
+                .map(|s| s == "platt")
+                .unwrap_or(false);
+            let multiclass_calibration = req
+                .get("multiclass_calibration_method")
+                .and_then(|v| v.as_str())
+                .map(|s| s == "vector")
+                .unwrap_or(false);
+            let num_folds_for_cv = req
+                .get("num_folds_for_cv")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(5) as usize;
+            let enable_nnls = req
+                .get("enable_nnls")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let nnls_beta = req
+                .get("nnls_beta")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.75);
+            let calibration_lambda = req
+                .get("calibration_lambda")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(1e-2);
+            let batch_size = batch_size.or_else(|| {
+                req.get("batch_size")
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v as usize)
+            });
 
-            let config_str = std::fs::read_to_string(&config).with_context(|| format!("read {}", config.display()))?;
+            let config_str = std::fs::read_to_string(&config)
+                .with_context(|| format!("read {}", config.display()))?;
             let tc = TabFMConfig::from_json(&config_str).context("parse config.json")?;
 
             eprintln!("Loading model from {} …", gguf.display());
-            let model = TabFMModel::builder(&gguf).config_from(&tc).build().context("load model")?;
+            let model = TabFMModel::builder(&gguf)
+                .config_from(&tc)
+                .build()
+                .context("load model")?;
 
             let params = EnsembleParams::default()
                 .with_n_estimators(n_estimators)
@@ -311,14 +372,19 @@ pub async fn run(command: Command) -> anyhow::Result<()> {
                 .with_batch_size(batch_size);
 
             if tc.is_classifier {
-                let y_train = req["y_train"].as_array().context("y_train must be an array")?.clone();
+                let y_train = req["y_train"]
+                    .as_array()
+                    .context("y_train must be an array")?
+                    .clone();
                 eprintln!(
                     "Running {n_estimators}-member ensemble classification ({} train / {} test rows) …",
                     x_train.len(),
                     x_test.len()
                 );
                 let out = ensemble::with_thread_pool(threads, || {
-                    orchestrate::run_classification(&model, &x_train, &y_train, &x_test, &cat_mask, &params)
+                    orchestrate::run_classification(
+                        &model, &x_train, &y_train, &x_test, &cat_mask, &params,
+                    )
                 })
                 .context("ensemble classification")?;
                 #[derive(Serialize)]
@@ -345,7 +411,9 @@ pub async fn run(command: Command) -> anyhow::Result<()> {
                     x_test.len()
                 );
                 let out = ensemble::with_thread_pool(threads, || {
-                    orchestrate::run_regression(&model, &x_train, &y_train, &x_test, &cat_mask, &params)
+                    orchestrate::run_regression(
+                        &model, &x_train, &y_train, &x_test, &cat_mask, &params,
+                    )
                 })
                 .context("ensemble regression")?;
                 #[derive(Serialize)]
@@ -353,16 +421,18 @@ pub async fn run(command: Command) -> anyhow::Result<()> {
                     task: &'static str,
                     predictions: Vec<f64>,
                 }
-                println!("{}", serde_json::to_string_pretty(&Resp { task: "regression", predictions: out.predictions })?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&Resp {
+                        task: "regression",
+                        predictions: out.predictions
+                    })?
+                );
             }
         }
     }
 
     Ok(())
-}
-
-fn parse_matrix(val: &serde_json::Value) -> anyhow::Result<Vec<Vec<f32>>> {
-    serde_json::from_value(val.clone()).context("expected a 2D JSON array for `x`")
 }
 
 fn parse_vec_f32(val: &serde_json::Value) -> anyhow::Result<Vec<f32>> {
@@ -398,25 +468,21 @@ fn predict_json(is_classifier: bool, out: &[Vec<f32>]) -> anyhow::Result<String>
     }
 
     if is_classifier {
-        let probabilities: Vec<Vec<f32>> = out.iter().map(|row| softmax(row)).collect();
+        let probabilities: Vec<Vec<f32>> = out.iter().map(|row| zsfm_core::softmax(row)).collect();
         Ok(serde_json::to_string_pretty(&ClassificationResponse {
             task: "classification",
             logits: out,
             probabilities,
         })?)
     } else {
-        let predictions: Vec<f32> = out.iter().map(|row| row.first().copied().unwrap_or(0.0)).collect();
+        let predictions: Vec<f32> = out
+            .iter()
+            .map(|row| row.first().copied().unwrap_or(0.0))
+            .collect();
         Ok(serde_json::to_string_pretty(&RegressionResponse {
             task: "regression",
             predictions,
             raw: out,
         })?)
     }
-}
-
-fn softmax(logits: &[f32]) -> Vec<f32> {
-    let max = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-    let exps: Vec<f32> = logits.iter().map(|&v| (v - max).exp()).collect();
-    let sum: f32 = exps.iter().sum();
-    exps.into_iter().map(|v| v / sum).collect()
 }

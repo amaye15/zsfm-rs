@@ -62,14 +62,20 @@ pub struct EnsembleConfigParams {
 
 /// Feature-permutation generation (`FeatureShuffler`): its own independent `random.Random`
 /// stream, seeded with the same `random_state` but never mixed with the main RNG below.
-fn generate_feature_permutations(n_features: usize, n_estimators: usize, random_state: u64) -> Vec<Vec<usize>> {
+fn generate_feature_permutations(
+    n_features: usize,
+    n_estimators: usize,
+    random_state: u64,
+) -> Vec<Vec<usize>> {
     let mut rng = PyRandom::new(random_state);
     if n_features <= 5 {
         let all_perms = permutations(n_features);
         let k = n_estimators.min(all_perms.len());
         rng.sample(&all_perms, k)
     } else {
-        (0..n_estimators).map(|_| rng.sample_indices(n_features, n_features)).collect()
+        (0..n_estimators)
+            .map(|_| rng.sample_indices(n_features, n_features))
+            .collect()
     }
 }
 
@@ -99,49 +105,62 @@ fn permute_rec(items: &mut Vec<usize>, k: usize, out: &mut Vec<Vec<usize>>) {
 /// (5) one `shuffle()` over the zipped per-member tuples; norm-method assignment happens last,
 /// by position, consuming no RNG.
 pub fn generate_ensemble(p: &EnsembleConfigParams) -> Vec<MemberConfig> {
-    let shuffle_patterns = generate_feature_permutations(p.n_features, p.n_estimators, p.random_state);
+    let shuffle_patterns =
+        generate_feature_permutations(p.n_features, p.n_estimators, p.random_state);
     let n_members_from_shuffle = shuffle_patterns.len();
 
     let mut rng = PyRandom::new(p.random_state);
 
-    let shift_offsets: Vec<usize> = if p.is_classification && p.class_shift && p.n_estimators > 1 && p.n_classes > 1 {
-        let base_offsets = rng.sample_indices(p.n_classes, p.n_classes);
-        let num_cycles = p.n_estimators.div_ceil(base_offsets.len());
-        base_offsets
-            .iter()
-            .cycle()
-            .take(base_offsets.len() * num_cycles)
-            .take(p.n_estimators)
-            .copied()
-            .collect()
-    } else {
-        vec![0usize; p.n_estimators]
-    };
+    let shift_offsets: Vec<usize> =
+        if p.is_classification && p.class_shift && p.n_estimators > 1 && p.n_classes > 1 {
+            let base_offsets = rng.sample_indices(p.n_classes, p.n_classes);
+            let num_cycles = p.n_estimators.div_ceil(base_offsets.len());
+            base_offsets
+                .iter()
+                .cycle()
+                .take(base_offsets.len() * num_cycles)
+                .take(p.n_estimators)
+                .copied()
+                .collect()
+        } else {
+            vec![0usize; p.n_estimators]
+        };
 
-    let cat_permutations: Vec<Option<Vec<Vec<usize>>>> = if p.permute_categorical && !p.cat_value_counts.is_empty() {
-        (0..p.n_estimators)
-            .map(|_| {
-                Some(
-                    p.cat_value_counts
-                        .iter()
-                        .map(|&n_vals| rng.sample_indices(n_vals, n_vals))
-                        .collect(),
-                )
-            })
-            .collect()
-    } else {
-        vec![None; p.n_estimators]
-    };
+    let cat_permutations: Vec<Option<Vec<Vec<usize>>>> =
+        if p.permute_categorical && !p.cat_value_counts.is_empty() {
+            (0..p.n_estimators)
+                .map(|_| {
+                    Some(
+                        p.cat_value_counts
+                            .iter()
+                            .map(|&n_vals| rng.sample_indices(n_vals, n_vals))
+                            .collect(),
+                    )
+                })
+                .collect()
+        } else {
+            vec![None; p.n_estimators]
+        };
 
-    let n_rows_target = p.max_num_rows.map(|m| m.min(p.n_train_rows)).unwrap_or(p.n_train_rows);
+    let n_rows_target = p
+        .max_num_rows
+        .map(|m| m.min(p.n_train_rows))
+        .unwrap_or(p.n_train_rows);
     let row_subsample_patterns: Vec<Option<Vec<usize>>> = if n_rows_target < p.n_train_rows {
-        (0..p.n_estimators).map(|_| Some(rng.sample_indices(p.n_train_rows, n_rows_target))).collect()
+        (0..p.n_estimators)
+            .map(|_| Some(rng.sample_indices(p.n_train_rows, n_rows_target)))
+            .collect()
     } else {
         vec![None; p.n_estimators]
     };
 
     let n = n_members_from_shuffle.min(shift_offsets.len());
-    let mut zipped: Vec<(Vec<usize>, usize, Option<Vec<Vec<usize>>>, Option<Vec<usize>>)> = (0..n)
+    let mut zipped: Vec<(
+        Vec<usize>,
+        usize,
+        Option<Vec<Vec<usize>>>,
+        Option<Vec<usize>>,
+    )> = (0..n)
         .map(|i| {
             (
                 shuffle_patterns[i].clone(),
@@ -154,19 +173,29 @@ pub fn generate_ensemble(p: &EnsembleConfigParams) -> Vec<MemberConfig> {
     rng.shuffle(&mut zipped);
 
     let num_cycles = p.n_estimators.div_ceil(p.norm_methods.len());
-    let norm_methods_for_estimators: Vec<NormMethod> =
-        p.norm_methods.iter().cycle().take(p.norm_methods.len() * num_cycles).take(n).copied().collect();
+    let norm_methods_for_estimators: Vec<NormMethod> = p
+        .norm_methods
+        .iter()
+        .cycle()
+        .take(p.norm_methods.len() * num_cycles)
+        .take(n)
+        .copied()
+        .collect();
 
     zipped
         .into_iter()
         .zip(norm_methods_for_estimators)
-        .map(|((feature_permutation, class_shift, cat_permutation, row_subsample), norm_method)| MemberConfig {
-            feature_permutation,
-            class_shift,
-            cat_permutation,
-            row_subsample,
-            norm_method,
-        })
+        .map(
+            |((feature_permutation, class_shift, cat_permutation, row_subsample), norm_method)| {
+                MemberConfig {
+                    feature_permutation,
+                    class_shift,
+                    cat_permutation,
+                    row_subsample,
+                    norm_method,
+                }
+            },
+        )
         .collect()
 }
 
@@ -195,7 +224,11 @@ mod tests {
             assert_eq!(c.feature_permutation.len(), 8);
             let mut sorted = c.feature_permutation.clone();
             sorted.sort();
-            assert_eq!(sorted, (0..8).collect::<Vec<_>>(), "member {i} not a valid permutation");
+            assert_eq!(
+                sorted,
+                (0..8).collect::<Vec<_>>(),
+                "member {i} not a valid permutation"
+            );
             assert!(c.class_shift < 3);
             assert!(c.cat_permutation.is_none());
             assert!(c.row_subsample.is_none());
@@ -255,8 +288,14 @@ mod tests {
             (NormMethod::Power, &[2, 3, 1, 7, 6, 0, 4, 5], 0),
         ];
         for (i, (exp_method, exp_perm, exp_shift)) in expected.iter().enumerate() {
-            assert_eq!(configs[i].norm_method, *exp_method, "member {i} norm_method");
-            assert_eq!(&configs[i].feature_permutation, exp_perm, "member {i} permutation");
+            assert_eq!(
+                configs[i].norm_method, *exp_method,
+                "member {i} norm_method"
+            );
+            assert_eq!(
+                &configs[i].feature_permutation, exp_perm,
+                "member {i} permutation"
+            );
             assert_eq!(configs[i].class_shift, *exp_shift, "member {i} shift");
         }
     }

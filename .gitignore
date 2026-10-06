@@ -44,4 +44,6 @@ timer-v3/Large-Time-Series-Model/
 # Hugging Face
 hf_openapi.md
 
-zsfm-rs/models*
+# Model cache (created by `zsfm <model> convert --model-dir`)
+models/
+zsfm-rs/models/

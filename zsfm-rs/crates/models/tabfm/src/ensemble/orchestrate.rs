@@ -47,7 +47,7 @@ pub struct EnsembleParams {
     pub(crate) softmax_temperature: f64,
     pub(crate) average_logits: bool,
     pub(crate) random_state: u64,
-    pub(crate) binary_calibration: bool,  // "platt"
+    pub(crate) binary_calibration: bool,     // "platt"
     pub(crate) multiclass_calibration: bool, // "vector"
     pub(crate) num_folds_for_cv: usize,
     pub(crate) enable_nnls: bool,
@@ -84,22 +84,64 @@ impl Default for EnsembleParams {
 }
 
 impl EnsembleParams {
-    pub fn with_n_estimators(mut self, v: usize) -> Self { self.n_estimators = v; self }
-    pub fn with_norm_methods(mut self, v: Vec<NormMethod>) -> Self { self.norm_methods = v; self }
-    pub fn with_class_shift(mut self, v: bool) -> Self { self.class_shift = v; self }
-    pub fn with_outlier_threshold(mut self, v: f64) -> Self { self.outlier_threshold = v; self }
-    pub fn with_softmax_temperature(mut self, v: f64) -> Self { self.softmax_temperature = v; self }
-    pub fn with_average_logits(mut self, v: bool) -> Self { self.average_logits = v; self }
-    pub fn with_random_state(mut self, v: u64) -> Self { self.random_state = v; self }
+    pub fn with_n_estimators(mut self, v: usize) -> Self {
+        self.n_estimators = v;
+        self
+    }
+    pub fn with_norm_methods(mut self, v: Vec<NormMethod>) -> Self {
+        self.norm_methods = v;
+        self
+    }
+    pub fn with_class_shift(mut self, v: bool) -> Self {
+        self.class_shift = v;
+        self
+    }
+    pub fn with_outlier_threshold(mut self, v: f64) -> Self {
+        self.outlier_threshold = v;
+        self
+    }
+    pub fn with_softmax_temperature(mut self, v: f64) -> Self {
+        self.softmax_temperature = v;
+        self
+    }
+    pub fn with_average_logits(mut self, v: bool) -> Self {
+        self.average_logits = v;
+        self
+    }
+    pub fn with_random_state(mut self, v: u64) -> Self {
+        self.random_state = v;
+        self
+    }
     /// Enable Platt scaling for binary classification (`n_classes == 2`).
-    pub fn with_binary_calibration(mut self, v: bool) -> Self { self.binary_calibration = v; self }
+    pub fn with_binary_calibration(mut self, v: bool) -> Self {
+        self.binary_calibration = v;
+        self
+    }
     /// Enable vector scaling for multiclass classification (`n_classes > 2`).
-    pub fn with_multiclass_calibration(mut self, v: bool) -> Self { self.multiclass_calibration = v; self }
-    pub fn with_num_folds_for_cv(mut self, v: usize) -> Self { self.num_folds_for_cv = v; self }
-    pub fn with_enable_nnls(mut self, v: bool) -> Self { self.enable_nnls = v; self }
-    pub fn with_nnls_beta(mut self, v: f64) -> Self { self.nnls_beta = v; self }
-    pub fn with_calibration_lambda(mut self, v: f64) -> Self { self.calibration_lambda = v; self }
-    pub fn with_batch_size(mut self, v: Option<usize>) -> Self { self.batch_size = v; self }
+    pub fn with_multiclass_calibration(mut self, v: bool) -> Self {
+        self.multiclass_calibration = v;
+        self
+    }
+    pub fn with_num_folds_for_cv(mut self, v: usize) -> Self {
+        self.num_folds_for_cv = v;
+        self
+    }
+    pub fn with_enable_nnls(mut self, v: bool) -> Self {
+        self.enable_nnls = v;
+        self
+    }
+    pub fn with_nnls_beta(mut self, v: f64) -> Self {
+        self.nnls_beta = v;
+        self
+    }
+    pub fn with_calibration_lambda(mut self, v: f64) -> Self {
+        self.calibration_lambda = v;
+        self
+    }
+    pub fn with_batch_size(mut self, v: Option<usize>) -> Self {
+        self.batch_size = v;
+        self
+    }
 }
 
 pub struct ClassificationOutput {
@@ -152,18 +194,27 @@ impl ColumnCache {
                 (enc.transform(&train_raw), enc.transform(&query_raw))
             } else {
                 let parse = |v: &Value| v.as_f64().unwrap_or(f64::NAN);
-                (train_raw.iter().map(parse).collect(), query_raw.iter().map(parse).collect())
+                (
+                    train_raw.iter().map(parse).collect(),
+                    query_raw.iter().map(parse).collect(),
+                )
             };
             raw_train.push(t);
             raw_query.push(q);
         }
 
-        let distinct_norm_methods: HashSet<NormMethod> = configs.iter().map(|c| c.norm_method).collect();
+        let distinct_norm_methods: HashSet<NormMethod> =
+            configs.iter().map(|c| c.norm_method).collect();
 
         let mut scaled = HashMap::with_capacity(n_features * distinct_norm_methods.len());
         for col in 0..n_features {
             for &nm in &distinct_norm_methods {
-                let transformed = scalers::apply_pipeline(&raw_train[col], &raw_query[col], nm, outlier_threshold);
+                let transformed = scalers::apply_pipeline(
+                    &raw_train[col],
+                    &raw_query[col],
+                    nm,
+                    outlier_threshold,
+                );
                 scaled.insert((col, nm), transformed);
             }
         }
@@ -172,7 +223,10 @@ impl ColumnCache {
     }
 
     fn scaled(&self, col: usize, norm_method: NormMethod) -> (&[f64], &[f64]) {
-        let (t, q) = self.scaled.get(&(col, norm_method)).expect("precomputed for every config's norm_method");
+        let (t, q) = self
+            .scaled
+            .get(&(col, norm_method))
+            .expect("precomputed for every config's norm_method");
         (t, q)
     }
 }
@@ -201,7 +255,10 @@ fn build_member_table(
         }
     }
 
-    MemberTable { x, cat_mask: permuted_cat_mask }
+    MemberTable {
+        x,
+        cat_mask: permuted_cat_mask,
+    }
 }
 
 /// Runs every ensemble member's forward pass for classification, given a train/query row split
@@ -227,9 +284,17 @@ pub fn run_members_classification(
     let n_query = x_query_raw.len();
     let n_features = x_train_raw.first().map(|r| r.len()).unwrap_or(0);
 
-    let cache = ColumnCache::build(x_train_raw, x_query_raw, cat_mask, configs, outlier_threshold);
-    let tables: Vec<MemberTable> =
-        configs.iter().map(|member| build_member_table(&cache, n_train, n_query, cat_mask, member)).collect();
+    let cache = ColumnCache::build(
+        x_train_raw,
+        x_query_raw,
+        cat_mask,
+        configs,
+        outlier_threshold,
+    );
+    let tables: Vec<MemberTable> = configs
+        .iter()
+        .map(|member| build_member_table(&cache, n_train, n_query, cat_mask, member))
+        .collect();
 
     let chunk_size = batch_size.unwrap_or(DEFAULT_BATCH_CHUNK_SIZE).max(1);
     let num_chunks = configs.len().div_ceil(chunk_size);
@@ -243,20 +308,30 @@ pub fn run_members_classification(
             let table_chunk = &tables[start..end];
 
             let x_batch: Vec<Vec<Vec<f32>>> = table_chunk.iter().map(|t| t.x.clone()).collect();
-            let cat_mask_batch: Vec<Vec<bool>> = table_chunk.iter().map(|t| t.cat_mask.clone()).collect();
+            let cat_mask_batch: Vec<Vec<bool>> =
+                table_chunk.iter().map(|t| t.cat_mask.clone()).collect();
             let y_batch: Vec<Vec<f32>> = member_chunk
                 .iter()
                 .map(|member| {
                     y_train_codes
                         .iter()
-                        .map(|&c| ((c as i64 + member.class_shift as i64).rem_euclid(n_classes as i64)) as f32)
+                        .map(|&c| {
+                            ((c as i64 + member.class_shift as i64).rem_euclid(n_classes as i64))
+                                as f32
+                        })
                         .chain(std::iter::repeat(0f32).take(n_query))
                         .collect()
                 })
                 .collect();
 
             let out_batch = model
-                .predict_batch(&x_batch, &y_batch, n_train, &cat_mask_batch, Some(n_features))
+                .predict_batch(
+                    &x_batch,
+                    &y_batch,
+                    n_train,
+                    &cat_mask_batch,
+                    Some(n_features),
+                )
                 .context("member batch forward pass")?;
 
             Ok(member_chunk
@@ -294,9 +369,17 @@ pub fn run_members_regression(
     let n_query = x_query_raw.len();
     let n_features = x_train_raw.first().map(|r| r.len()).unwrap_or(0);
 
-    let cache = ColumnCache::build(x_train_raw, x_query_raw, cat_mask, configs, outlier_threshold);
-    let tables: Vec<MemberTable> =
-        configs.iter().map(|member| build_member_table(&cache, n_train, n_query, cat_mask, member)).collect();
+    let cache = ColumnCache::build(
+        x_train_raw,
+        x_query_raw,
+        cat_mask,
+        configs,
+        outlier_threshold,
+    );
+    let tables: Vec<MemberTable> = configs
+        .iter()
+        .map(|member| build_member_table(&cache, n_train, n_query, cat_mask, member))
+        .collect();
 
     let chunk_size = batch_size.unwrap_or(DEFAULT_BATCH_CHUNK_SIZE).max(1);
     let num_chunks = configs.len().div_ceil(chunk_size);
@@ -309,16 +392,32 @@ pub fn run_members_regression(
             let table_chunk = &tables[start..end];
 
             let x_batch: Vec<Vec<Vec<f32>>> = table_chunk.iter().map(|t| t.x.clone()).collect();
-            let cat_mask_batch: Vec<Vec<bool>> = table_chunk.iter().map(|t| t.cat_mask.clone()).collect();
+            let cat_mask_batch: Vec<Vec<bool>> =
+                table_chunk.iter().map(|t| t.cat_mask.clone()).collect();
             let y_batch: Vec<Vec<f32>> = (0..table_chunk.len())
-                .map(|_| y_train_scaled.iter().map(|&v| v as f32).chain(std::iter::repeat(0f32).take(n_query)).collect())
+                .map(|_| {
+                    y_train_scaled
+                        .iter()
+                        .map(|&v| v as f32)
+                        .chain(std::iter::repeat(0f32).take(n_query))
+                        .collect()
+                })
                 .collect();
 
             let out_batch = model
-                .predict_batch(&x_batch, &y_batch, n_train, &cat_mask_batch, Some(n_features))
+                .predict_batch(
+                    &x_batch,
+                    &y_batch,
+                    n_train,
+                    &cat_mask_batch,
+                    Some(n_features),
+                )
                 .context("member batch forward pass")?;
 
-            Ok(out_batch.iter().map(|out| out[n_train..].iter().map(|row| row[0] as f64).collect()).collect())
+            Ok(out_batch
+                .iter()
+                .map(|out| out[n_train..].iter().map(|row| row[0] as f64).collect())
+                .collect())
         })
         .collect();
 
@@ -364,28 +463,53 @@ pub fn run_classification(
     });
 
     let per_member_logits = run_members_classification(
-        model, x_train_raw, &y_codes, x_test_raw, cat_mask, n_classes, &configs, p.outlier_threshold, p.batch_size,
+        model,
+        x_train_raw,
+        &y_codes,
+        x_test_raw,
+        cat_mask,
+        n_classes,
+        &configs,
+        p.outlier_threshold,
+        p.batch_size,
     )?;
 
-    let binary_or_multiclass_calibration = if n_classes == 2 { p.binary_calibration } else { p.multiclass_calibration };
+    let binary_or_multiclass_calibration = if n_classes == 2 {
+        p.binary_calibration
+    } else {
+        p.multiclass_calibration
+    };
 
     // Compute out-of-fold logits at most once, regardless of how many of {NNLS, calibration} are
     // requested — both need the same OOF ensemble run, and each is itself a `num_folds_for_cv` x
     // `n_estimators` re-run of the whole forward pass, so this reuse matters a lot in practice.
     let oof_logits = if p.enable_nnls || binary_or_multiclass_calibration {
         Some(oof::run_oof_classification(
-            model, x_train_raw, &y_codes, cat_mask, n_classes, &configs, p, p.num_folds_for_cv,
+            model,
+            x_train_raw,
+            &y_codes,
+            cat_mask,
+            n_classes,
+            &configs,
+            p,
+            p.num_folds_for_cv,
         )?)
     } else {
         None
     };
 
     let nnls_weights = if p.enable_nnls {
-        let oof_logits = oof_logits.as_ref().expect("computed above when enable_nnls");
+        let oof_logits = oof_logits
+            .as_ref()
+            .expect("computed above when enable_nnls");
         // oof_logits: [member][train_row][class] -> per-member OOF probabilities for NNLS.
         let oof_probs: Vec<Vec<Vec<f64>>> = oof_logits
             .iter()
-            .map(|m| m.iter().map(|l| aggregate::softmax_temperature(l, p.softmax_temperature)).collect())
+            .map(|m| {
+                m.iter()
+                    .map(|l| aggregate::softmax_temperature(l, p.softmax_temperature))
+                    .collect()
+            })
             .collect();
         let n_est = oof_probs.len();
         let n_tr = oof_probs[0].len();
@@ -410,20 +534,33 @@ pub fn run_classification(
     let mode = class_agg_mode(p, &nnls_weights);
     let mut probabilities = Vec::with_capacity(n_test);
     for row_idx in 0..n_test {
-        let logits_all: Vec<Vec<f64>> = per_member_logits.iter().map(|m| m[row_idx].clone()).collect();
-        probabilities.push(aggregate::aggregate_classification(&logits_all, p.softmax_temperature, &mode));
+        let logits_all: Vec<Vec<f64>> = per_member_logits
+            .iter()
+            .map(|m| m[row_idx].clone())
+            .collect();
+        probabilities.push(aggregate::aggregate_classification(
+            &logits_all,
+            p.softmax_temperature,
+            &mode,
+        ));
     }
 
     if binary_or_multiclass_calibration {
         // Reuse the OOF logits computed above (shared with NNLS when both are enabled) and
         // aggregate them the *same* way (NNLS-or-average) test predictions were, to calibrate
         // the ensemble's actual output distribution, then apply the fitted transform to test preds.
-        let oof_logits = oof_logits.as_ref().expect("computed above when calibration enabled");
+        let oof_logits = oof_logits
+            .as_ref()
+            .expect("computed above when calibration enabled");
         let n_tr = oof_logits[0].len();
         let mut oof_final_probs = Vec::with_capacity(n_tr);
         for row_idx in 0..n_tr {
             let logits_all: Vec<Vec<f64>> = oof_logits.iter().map(|m| m[row_idx].clone()).collect();
-            oof_final_probs.push(aggregate::aggregate_classification(&logits_all, p.softmax_temperature, &mode));
+            oof_final_probs.push(aggregate::aggregate_classification(
+                &logits_all,
+                p.softmax_temperature,
+                &mode,
+            ));
         }
         let y_codes_usize: Vec<usize> = y_codes.iter().map(|&c| c as usize).collect();
 
@@ -431,7 +568,8 @@ pub fn run_classification(
             let params = PlattParams::fit(&oof_final_probs, &y_codes_usize, p.calibration_lambda);
             probabilities = probabilities.iter().map(|p| params.apply(p)).collect();
         } else {
-            let params = VectorScalingParams::fit(&oof_final_probs, &y_codes_usize, p.calibration_lambda);
+            let params =
+                VectorScalingParams::fit(&oof_final_probs, &y_codes_usize, p.calibration_lambda);
             probabilities = probabilities.iter().map(|p| params.apply(p)).collect();
         }
     }
@@ -439,12 +577,24 @@ pub fn run_classification(
     let mut predicted_labels = Vec::with_capacity(n_test);
     for probs in &probabilities {
         let (best_idx, _) =
-            probs.iter().enumerate().fold((0, f64::NEG_INFINITY), |acc, (i, &v)| if v > acc.1 { (i, v) } else { acc });
+            probs
+                .iter()
+                .enumerate()
+                .fold(
+                    (0, f64::NEG_INFINITY),
+                    |acc, (i, &v)| if v > acc.1 { (i, v) } else { acc },
+                );
         predicted_labels.push(label_enc.decode(best_idx).to_string());
     }
 
-    let classes: Vec<String> = (0..n_classes).map(|c| label_enc.decode(c).to_string()).collect();
-    Ok(ClassificationOutput { probabilities, predicted_labels, classes })
+    let classes: Vec<String> = (0..n_classes)
+        .map(|c| label_enc.decode(c).to_string())
+        .collect();
+    Ok(ClassificationOutput {
+        probabilities,
+        predicted_labels,
+        classes,
+    })
 }
 
 pub fn run_regression(
@@ -476,11 +626,26 @@ pub fn run_regression(
     });
 
     let per_member_scaled_preds = run_members_regression(
-        model, x_train_raw, &y_scaled, x_test_raw, cat_mask, &configs, p.outlier_threshold, p.batch_size,
+        model,
+        x_train_raw,
+        &y_scaled,
+        x_test_raw,
+        cat_mask,
+        &configs,
+        p.outlier_threshold,
+        p.batch_size,
     )?;
 
     let nnls_weights = if p.enable_nnls {
-        let oof_scaled = oof::run_oof_regression(model, x_train_raw, &y_scaled, cat_mask, &configs, p, p.num_folds_for_cv)?;
+        let oof_scaled = oof::run_oof_regression(
+            model,
+            x_train_raw,
+            &y_scaled,
+            cat_mask,
+            &configs,
+            p,
+            p.num_folds_for_cv,
+        )?;
         let n_est = oof_scaled.len();
         let n_tr = oof_scaled[0].len();
         // NNLS target uses inverse-transformed (original-scale) OOF predictions vs raw y.
@@ -508,7 +673,8 @@ pub fn run_regression(
                 aggregate::weighted_unscaled_predictions(&unscaled, weights)
             }
             None => {
-                let scaled_across_members: Vec<f64> = per_member_scaled_preds.iter().map(|m| m[row_idx]).collect();
+                let scaled_across_members: Vec<f64> =
+                    per_member_scaled_preds.iter().map(|m| m[row_idx]).collect();
                 let avg_scaled = aggregate::average_scaled_predictions(&scaled_across_members);
                 y_scaler.inverse_transform_scalar(avg_scaled)
             }

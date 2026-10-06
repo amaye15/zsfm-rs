@@ -25,6 +25,30 @@ pub fn layer_norm(x: &Tensor, weight: &Tensor, bias: &Tensor, eps: f64) -> Resul
     Ok(x.broadcast_add(bias)?)
 }
 
+/// LayerNorm without affine parameters: `(x - mean) / sqrt(var + eps)`.
+/// Shared by TabDPT (`layer_norm_no_affine`) and Sundial (`layer_norm_no_params`).
+pub fn layer_norm_no_affine(x: &Tensor, eps: f64) -> Result<Tensor> {
+    let mean = x.mean_keepdim(D::Minus1)?;
+    let x = x.broadcast_sub(&mean)?;
+    let var = x.sqr()?.mean_keepdim(D::Minus1)?;
+    let std = (var + eps)?.sqrt()?;
+    Ok(x.broadcast_div(&std)?)
+}
+
+/// Numerically stable softmax over a host `f32` slice.
+pub fn softmax_host(logits: &[f32]) -> Vec<f32> {
+    if logits.is_empty() {
+        return Vec::new();
+    }
+    let max = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    let exps: Vec<f32> = logits.iter().map(|&v| (v - max).exp()).collect();
+    let sum: f32 = exps.iter().sum();
+    if sum == 0.0 || !sum.is_finite() {
+        return vec![1.0 / logits.len() as f32; logits.len()];
+    }
+    exps.into_iter().map(|v| v / sum).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

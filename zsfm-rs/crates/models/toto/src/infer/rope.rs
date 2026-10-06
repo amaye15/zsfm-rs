@@ -12,9 +12,9 @@ use candle_core::{Device, Tensor, D};
 /// For the 2.5B model: `partial_factor=(0.0, 0.5)` → `proj_width = qk_dim/2 = 32`.
 pub struct RopeCache {
     pub proj_width: usize,
-    cos: Vec<Vec<f32>>,         // [max_len][proj_width]
-    sin: Vec<Vec<f32>>,         // [max_len][proj_width]
-    xpos_base_scale: Vec<f32>,  // [proj_width/2]
+    cos: Vec<Vec<f32>>,        // [max_len][proj_width]
+    sin: Vec<Vec<f32>>,        // [max_len][proj_width]
+    xpos_base_scale: Vec<f32>, // [proj_width/2]
 }
 
 impl RopeCache {
@@ -44,7 +44,12 @@ impl RopeCache {
             .map(|i| ((2 * i) as f32 + 0.4 * proj_width as f32) / (1.4 * proj_width as f32))
             .collect();
 
-        Self { proj_width, cos, sin, xpos_base_scale }
+        Self {
+            proj_width,
+            cos,
+            sin,
+            xpos_base_scale,
+        }
     }
 
     /// Apply xPos-RoPE to query or key.
@@ -94,7 +99,9 @@ impl RopeCache {
         let rotated = (x_rot.broadcast_mul(&pos_cos)? + rot_x.broadcast_mul(&pos_sin)?)?;
 
         let result = if qk_dim > proj_width {
-            let x_pass = x.narrow(D::Minus1, proj_width, qk_dim - proj_width)?.contiguous()?;
+            let x_pass = x
+                .narrow(D::Minus1, proj_width, qk_dim - proj_width)?
+                .contiguous()?;
             Tensor::cat(&[&rotated, &x_pass], D::Minus1)?
         } else {
             rotated

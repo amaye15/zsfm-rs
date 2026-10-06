@@ -120,7 +120,7 @@ impl GGUFWriter {
 }
 
 fn round_up(value: u64, align: u64) -> u64 {
-    (value + align - 1) / align * align
+    value.div_ceil(align) * align
 }
 
 fn write_string<W: Write>(writer: &mut W, s: &str) -> io::Result<()> {

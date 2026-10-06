@@ -14,7 +14,9 @@ pub fn softmax_temperature(logits: &[f64], temperature: f64) -> Vec<f64> {
 /// training labels, so its output logit at position `(c + shift) % n_classes` is the prediction
 /// for original class `c`.
 pub fn unshift_logits(logits: &[f64], shift: usize, n_classes: usize) -> Vec<f64> {
-    (0..n_classes).map(|c| logits[(c + shift) % n_classes]).collect()
+    (0..n_classes)
+        .map(|c| logits[(c + shift) % n_classes])
+        .collect()
 }
 
 fn average_vecs(vecs: &[Vec<f64>]) -> Vec<f64> {
@@ -52,11 +54,17 @@ pub enum ClassAggMode<'a> {
 
 /// `_process_logits`: `logits_all` is `[n_estimators][n_classes]`, already un-shifted back to
 /// original class order. Returns final `[n_classes]` probabilities.
-pub fn aggregate_classification(logits_all: &[Vec<f64>], temperature: f64, mode: &ClassAggMode) -> Vec<f64> {
+pub fn aggregate_classification(
+    logits_all: &[Vec<f64>],
+    temperature: f64,
+    mode: &ClassAggMode,
+) -> Vec<f64> {
     match mode {
         ClassAggMode::NnlsWeighted(weights) => {
-            let probs_all: Vec<Vec<f64>> =
-                logits_all.iter().map(|l| softmax_temperature(l, temperature)).collect();
+            let probs_all: Vec<Vec<f64>> = logits_all
+                .iter()
+                .map(|l| softmax_temperature(l, temperature))
+                .collect();
             weighted_average_vecs(&probs_all, weights)
         }
         ClassAggMode::AverageLogits => {
@@ -64,8 +72,10 @@ pub fn aggregate_classification(logits_all: &[Vec<f64>], temperature: f64, mode:
             softmax_temperature(&avg, temperature)
         }
         ClassAggMode::AverageProbs => {
-            let probs_all: Vec<Vec<f64>> =
-                logits_all.iter().map(|l| softmax_temperature(l, temperature)).collect();
+            let probs_all: Vec<Vec<f64>> = logits_all
+                .iter()
+                .map(|l| softmax_temperature(l, temperature))
+                .collect();
             average_vecs(&probs_all)
         }
     }
@@ -80,7 +90,11 @@ pub fn average_scaled_predictions(scaled: &[f64]) -> f64 {
 /// `_combine_predictions`, NNLS-on path: each member's prediction has already been
 /// inverse-transformed by the caller; combine via the fitted weights.
 pub fn weighted_unscaled_predictions(unscaled: &[f64], weights: &[f64]) -> f64 {
-    unscaled.iter().zip(weights.iter()).map(|(p, w)| p * w).sum()
+    unscaled
+        .iter()
+        .zip(weights.iter())
+        .map(|(p, w)| p * w)
+        .sum()
 }
 
 #[cfg(test)]
@@ -119,7 +133,10 @@ mod tests {
         let logits_all2 = vec![vec![10.0, 0.0], vec![1.0, 0.0]];
         let l2 = aggregate_classification(&logits_all2, 0.9, &ClassAggMode::AverageLogits);
         let p2 = aggregate_classification(&logits_all2, 0.9, &ClassAggMode::AverageProbs);
-        assert!((l2[0] - p2[0]).abs() > 1e-3, "expected the two paths to diverge on asymmetric input");
+        assert!(
+            (l2[0] - p2[0]).abs() > 1e-3,
+            "expected the two paths to diverge on asymmetric input"
+        );
         let _ = via_probs;
     }
 }

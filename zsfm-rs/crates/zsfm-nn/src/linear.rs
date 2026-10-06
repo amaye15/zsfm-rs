@@ -35,8 +35,10 @@ mod tests {
     #[test]
     fn matches_manual_matmul_for_3d_input() {
         let device = Device::Cpu;
-        let x = Tensor::from_vec((0..24u32).map(|v| v as f32).collect(), (2, 3, 4), &device).unwrap();
-        let w = Tensor::from_vec((0..8u32).map(|v| v as f32 * 0.5).collect(), (2, 4), &device).unwrap();
+        let x =
+            Tensor::from_vec((0..24u32).map(|v| v as f32).collect(), (2, 3, 4), &device).unwrap();
+        let w =
+            Tensor::from_vec((0..8u32).map(|v| v as f32 * 0.5).collect(), (2, 4), &device).unwrap();
         let b = Tensor::from_vec(vec![1.0f32, -1.0], (2,), &device).unwrap();
 
         let got = linear(&x, &w, Some(&b)).unwrap();
@@ -44,7 +46,11 @@ mod tests {
 
         // Manual reference: flatten to 2D, matmul, add bias, reshape.
         let x2 = x.reshape((6, 4)).unwrap();
-        let want2 = x2.matmul(&w.t().unwrap()).unwrap().broadcast_add(&b).unwrap();
+        let want2 = x2
+            .matmul(&w.t().unwrap())
+            .unwrap()
+            .broadcast_add(&b)
+            .unwrap();
         let want = want2.reshape((2, 3, 2)).unwrap();
 
         let got_v: Vec<f32> = got.flatten_all().unwrap().to_vec1().unwrap();

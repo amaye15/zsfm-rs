@@ -8,9 +8,9 @@
 //!   the reconstruction head applied to the last patch's encoder output.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
 use std::io::{BufReader, Read, Seek};
 use std::path::Path;
+use std::sync::Mutex;
 
 use anyhow::{Context, Result};
 use candle_core::quantized::gguf_file;
@@ -35,14 +35,14 @@ struct EncoderBlock {
 pub struct MomentModel {
     device: Device,
     config: MomentConfig,
-    patch_embed_w: Tensor,    // [1024, 8]  value embedding (no bias)
-    pos_embed: Tensor,        // [1, 5000, 1024]
-    mask_embed: Tensor,       // [1024]  learned token for masked (future) patches
-    rel_bias_data: Vec<f32>,  // [32 * 16] flat, precomputed from rel_bias_w
+    patch_embed_w: Tensor,   // [1024, 8]  value embedding (no bias)
+    pos_embed: Tensor,       // [1, 5000, 1024]
+    mask_embed: Tensor,      // [1024]  learned token for masked (future) patches
+    rel_bias_data: Vec<f32>, // [32 * 16] flat, precomputed from rel_bias_w
     blocks: Vec<EncoderBlock>,
     norm_f_w: Tensor,
-    head_w: Tensor,           // [8, 1024]
-    head_b: Tensor,           // [8]
+    head_w: Tensor, // [8, 1024]
+    head_b: Tensor, // [8]
     rel_bias_cache: Mutex<HashMap<usize, Tensor>>,
 }
 
@@ -68,10 +68,11 @@ impl MomentModel {
         let content = gguf_file::Content::read(&mut reader).context("parse GGUF header")?;
 
         let patch_embed_w = load_t(&content, &mut reader, "patch_embed.weight", &device)?;
-        let pos_embed     = load_t(&content, &mut reader, "pos_embed.pe", &device)?;
-        let mask_embed    = load_t(&content, &mut reader, "mask_embed", &device)?;
+        let pos_embed = load_t(&content, &mut reader, "pos_embed.pe", &device)?;
+        let mask_embed = load_t(&content, &mut reader, "mask_embed", &device)?;
         let rel_bias_data = load_t(&content, &mut reader, "blk.0.attn_rel_bias.weight", &device)?
-            .flatten_all()?.to_vec1::<f32>()?;
+            .flatten_all()?
+            .to_vec1::<f32>()?;
 
         let mut blocks = Vec::with_capacity(config.n_layers);
         for n in 0..config.n_layers {
@@ -79,27 +80,34 @@ impl MomentModel {
             let q_w = load_t(&content, &mut reader, &p("attn_q.weight"), &device)?;
             let k_w = load_t(&content, &mut reader, &p("attn_k.weight"), &device)?;
             let v_w = load_t(&content, &mut reader, &p("attn_v.weight"), &device)?;
-            let attn_qkv_w = Tensor::cat(&[&q_w, &k_w, &v_w], 0)
-                .with_context(|| format!("qkv cat blk.{n}"))?;
+            let attn_qkv_w =
+                Tensor::cat(&[&q_w, &k_w, &v_w], 0).with_context(|| format!("qkv cat blk.{n}"))?;
             blocks.push(EncoderBlock {
                 attn_qkv_w,
-                attn_o_w:   load_t(&content, &mut reader, &p("attn_o.weight"), &device)?,
+                attn_o_w: load_t(&content, &mut reader, &p("attn_o.weight"), &device)?,
                 attn_norm_w: load_t(&content, &mut reader, &p("attn_norm.weight"), &device)?,
-                ffn_wi0_w:  load_t(&content, &mut reader, &p("ffn_wi0.weight"), &device)?,
-                ffn_wi1_w:  load_t(&content, &mut reader, &p("ffn_wi1.weight"), &device)?,
-                ffn_wo_w:   load_t(&content, &mut reader, &p("ffn_wo.weight"), &device)?,
+                ffn_wi0_w: load_t(&content, &mut reader, &p("ffn_wi0.weight"), &device)?,
+                ffn_wi1_w: load_t(&content, &mut reader, &p("ffn_wi1.weight"), &device)?,
+                ffn_wo_w: load_t(&content, &mut reader, &p("ffn_wo.weight"), &device)?,
                 ffn_norm_w: load_t(&content, &mut reader, &p("ffn_norm.weight"), &device)?,
             });
         }
 
         let norm_f_w = load_t(&content, &mut reader, "norm_f.weight", &device)?;
-        let head_w   = load_t(&content, &mut reader, "head.weight", &device)?;
-        let head_b   = load_t(&content, &mut reader, "head.bias", &device)?;
+        let head_w = load_t(&content, &mut reader, "head.weight", &device)?;
+        let head_b = load_t(&content, &mut reader, "head.bias", &device)?;
 
         Ok(Self {
-            device, config,
-            patch_embed_w, pos_embed, mask_embed, rel_bias_data,
-            blocks, norm_f_w, head_w, head_b,
+            device,
+            config,
+            patch_embed_w,
+            pos_embed,
+            mask_embed,
+            rel_bias_data,
+            blocks,
+            norm_f_w,
+            head_w,
+            head_b,
             rel_bias_cache: Mutex::new(HashMap::new()),
         })
     }
@@ -142,7 +150,10 @@ impl MomentModel {
         let total_patches = ctx_patches + n_fc;
 
         let rel_bias = {
-            let mut cache = self.rel_bias_cache.lock().unwrap();
+            let mut cache = self
+                .rel_bias_cache
+                .lock()
+                .map_err(|_| anyhow::anyhow!("cache mutex poisoned"))?;
             if !cache.contains_key(&total_patches) {
                 cache.insert(total_patches, self.compute_rel_bias(total_patches)?);
             }
@@ -189,7 +200,10 @@ impl MomentModel {
         let h_ctx = x.matmul(&self.patch_embed_w.t()?)?;
 
         // Future: expand mask_embed [d_model] → [n_fc, d_model]
-        let h_fc = self.mask_embed.unsqueeze(0)?.broadcast_as((n_fc, d_model))?;
+        let h_fc = self
+            .mask_embed
+            .unsqueeze(0)?
+            .broadcast_as((n_fc, d_model))?;
 
         // Concatenate: [total_patches, d_model]
         let h = Tensor::cat(&[h_ctx, h_fc], 0)?;
@@ -239,20 +253,32 @@ impl MomentModel {
         let v = qkv.narrow(D::Minus1, 2 * d_model, d_model)?;
 
         // Reshape to [n_heads, seq, head_dim]
-        let q = q.reshape((seq_len, n_heads, head_dim))?.permute((1, 0, 2))?.contiguous()?;
-        let k = k.reshape((seq_len, n_heads, head_dim))?.permute((1, 0, 2))?.contiguous()?;
-        let v = v.reshape((seq_len, n_heads, head_dim))?.permute((1, 0, 2))?.contiguous()?;
+        let q = q
+            .reshape((seq_len, n_heads, head_dim))?
+            .permute((1, 0, 2))?
+            .contiguous()?;
+        let k = k
+            .reshape((seq_len, n_heads, head_dim))?
+            .permute((1, 0, 2))?
+            .contiguous()?;
+        let v = v
+            .reshape((seq_len, n_heads, head_dim))?
+            .permute((1, 0, 2))?
+            .contiguous()?;
 
         // T5 does NOT scale by sqrt(head_dim) — scaling is absorbed into weight init
         let scores = q.matmul(&k.permute((0, 2, 1))?)?; // [n_heads, seq, seq]
-        // Add relative position bias (broadcast over batch dim)
+                                                        // Add relative position bias (broadcast over batch dim)
         let rel_bias_squeezed = rel_bias.squeeze(0)?; // [n_heads, seq, seq]
         let scores = (scores + rel_bias_squeezed)?;
         let attn = candle_nn::ops::softmax_last_dim(&scores)?;
 
         // Weighted sum
         let out = attn.matmul(&v)?; // [n_heads, seq, head_dim]
-        let out = out.permute((1, 0, 2))?.contiguous()?.reshape((seq_len, d_model))?;
+        let out = out
+            .permute((1, 0, 2))?
+            .contiguous()?
+            .reshape((seq_len, d_model))?;
 
         zsfm_nn::linear_nobias(&out, &blk.attn_o_w)
     }
@@ -278,7 +304,11 @@ impl MomentModel {
         }
 
         // Shape: [1, n_heads, seq, seq]
-        Ok(Tensor::from_vec(out, (1, n_heads, seq_len, seq_len), &self.device)?)
+        Ok(Tensor::from_vec(
+            out,
+            (1, n_heads, seq_len, seq_len),
+            &self.device,
+        )?)
     }
 }
 
@@ -296,9 +326,9 @@ fn t5_relative_bucket(
     let mut num_buckets = num_buckets;
 
     let n: usize = if bidirectional {
-        num_buckets /= 2;  // each direction gets half the buckets
+        num_buckets /= 2; // each direction gets half the buckets
         if relative_position > 0 {
-            ret += num_buckets;  // positive offset for future positions
+            ret += num_buckets; // positive offset for future positions
         }
         relative_position.unsigned_abs() as usize
     } else {
@@ -311,8 +341,7 @@ fn t5_relative_bucket(
         ret += n;
     } else {
         let val = max_exact
-            + ((n as f32 / max_exact as f32).ln()
-                / (max_distance as f32 / max_exact as f32).ln()
+            + ((n as f32 / max_exact as f32).ln() / (max_distance as f32 / max_exact as f32).ln()
                 * (num_buckets - max_exact) as f32) as usize;
         ret += val.min(num_buckets - 1);
     }
@@ -325,13 +354,8 @@ fn t5_relative_bucket(
 // ---------------------------------------------------------------------------
 
 /// T5 gated-GELU FFN: out = wo(gelu(wi_0(x)) * wi_1(x))
-fn gated_gelu_ffn(
-    x: &Tensor,
-    wi0_w: &Tensor,
-    wi1_w: &Tensor,
-    wo_w: &Tensor,
-) -> Result<Tensor> {
-    let gate  = zsfm_nn::linear_nobias(x, wi0_w)?.gelu_erf()?;
+fn gated_gelu_ffn(x: &Tensor, wi0_w: &Tensor, wi1_w: &Tensor, wo_w: &Tensor) -> Result<Tensor> {
+    let gate = zsfm_nn::linear_nobias(x, wi0_w)?.gelu_erf()?;
     let value = zsfm_nn::linear_nobias(x, wi1_w)?;
     let h = (gate * value)?;
     zsfm_nn::linear_nobias(&h, wo_w)
@@ -344,9 +368,11 @@ fn gated_gelu_ffn(
 /// Compute mean and std of x for RevIN normalization.
 fn revin_stats(x: &[f32]) -> (f32, f32) {
     let n = x.len() as f64;
-    if n == 0.0 { return (0.0, 1.0); }
+    if n == 0.0 {
+        return (0.0, 1.0);
+    }
     let mean = x.iter().map(|&v| v as f64).sum::<f64>() / n;
-    let var  = x.iter().map(|&v| (v as f64 - mean).powi(2)).sum::<f64>() / n;
+    let var = x.iter().map(|&v| (v as f64 - mean).powi(2)).sum::<f64>() / n;
     (mean as f32, var.sqrt() as f32)
 }
 
@@ -381,7 +407,10 @@ impl zsfm_core::Forecaster for MomentModel {
         _mask: &[Vec<bool>],
         horizon: usize,
     ) -> Result<zsfm_core::QuantileMatrix> {
-        anyhow::ensure!(context.len() == 1, "MomentModel only supports univariate forecasting (1 variate)");
+        anyhow::ensure!(
+            context.len() == 1,
+            "MomentModel only supports univariate forecasting (1 variate)"
+        );
         let point = MomentModel::forecast(self, &context[0], horizon)?;
         Ok(vec![vec![point]])
     }

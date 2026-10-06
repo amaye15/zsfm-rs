@@ -33,7 +33,11 @@ impl Mt19937 {
     /// integer is first split into little-endian 32-bit words (`key`).
     pub fn from_seed_key(key: &[u32]) -> Self {
         let mut rng = Self::init_genrand(19_650_218);
-        let key = if key.is_empty() { vec![0u32] } else { key.to_vec() };
+        let key = if key.is_empty() {
+            vec![0u32]
+        } else {
+            key.to_vec()
+        };
         let key_length = key.len();
         let mut i = 1usize;
         let mut j = 0usize;
@@ -134,11 +138,17 @@ pub struct PyRandom {
 
 impl PyRandom {
     pub fn new(seed: u64) -> Self {
-        PyRandom { mt: Mt19937::from_u64_seed(seed) }
+        PyRandom {
+            mt: Mt19937::from_u64_seed(seed),
+        }
     }
 
     fn bit_length(n: u64) -> u32 {
-        if n == 0 { 0 } else { 64 - n.leading_zeros() }
+        if n == 0 {
+            0
+        } else {
+            64 - n.leading_zeros()
+        }
     }
 
     /// `Random._randbelow_with_getrandbits`: rejection-sampled `getrandbits`.

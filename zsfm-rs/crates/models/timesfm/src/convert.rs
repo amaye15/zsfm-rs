@@ -4,8 +4,8 @@ use std::path::Path;
 
 use anyhow::Context;
 use indicatif::{ProgressBar, ProgressStyle};
-use safetensors::SafeTensors;
 use safetensors::Dtype as StDtype;
+use safetensors::SafeTensors;
 
 use zsfm_gguf::{GGMLType, GGUFMetaValue, GGUFWriter};
 use zsfm_hub::ModelFiles;
@@ -63,8 +63,12 @@ pub fn convert(
             }
         };
 
-        let src_dtype = ggml_type_from_st(tensor_view.dtype())
-            .with_context(|| format!("tensor {hf_name}: unsupported dtype {:?}", tensor_view.dtype()))?;
+        let src_dtype = ggml_type_from_st(tensor_view.dtype()).with_context(|| {
+            format!(
+                "tensor {hf_name}: unsupported dtype {:?}",
+                tensor_view.dtype()
+            )
+        })?;
 
         let raw_data = tensor_view.data();
         let py_shape = tensor_view.shape();
@@ -94,7 +98,10 @@ pub fn convert(
     pb.finish_with_message("tensors processed");
 
     if !skipped.is_empty() {
-        eprintln!("\nWarning: {} tensor(s) skipped (unrecognised names):", skipped.len());
+        eprintln!(
+            "\nWarning: {} tensor(s) skipped (unrecognised names):",
+            skipped.len()
+        );
         for name in &skipped {
             eprintln!("  {name}");
         }
@@ -106,8 +113,8 @@ pub fn convert(
     }
 
     println!("Writing {mapped} tensors to {} …", output_path.display());
-    let out_file = File::create(output_path)
-        .with_context(|| format!("create {}", output_path.display()))?;
+    let out_file =
+        File::create(output_path).with_context(|| format!("create {}", output_path.display()))?;
     let mut buf = BufWriter::new(out_file);
     writer.write_to(&mut buf)?;
     println!("Done.");
@@ -115,34 +122,78 @@ pub fn convert(
 }
 
 fn write_metadata(writer: &mut GGUFWriter, model_id: &str, cfg: &TimesFMConfig) {
-    writer.add_metadata("general.architecture",           GGUFMetaValue::String("timesfm25".into()));
-    writer.add_metadata("general.name",                   GGUFMetaValue::String(model_id.into()));
-    writer.add_metadata("timesfm25.block_count",          GGUFMetaValue::Uint32(cfg.num_layers as u32));
-    writer.add_metadata("timesfm25.embedding_length",     GGUFMetaValue::Uint32(cfg.d_model as u32));
-    writer.add_metadata("timesfm25.feed_forward_length",  GGUFMetaValue::Uint32(cfg.d_ff as u32));
-    writer.add_metadata("timesfm25.attention.head_count", GGUFMetaValue::Uint32(cfg.num_heads as u32));
-    writer.add_metadata("timesfm25.attention.head_dim",   GGUFMetaValue::Uint32(cfg.head_dim as u32));
-    writer.add_metadata("timesfm25.input_patch_len",      GGUFMetaValue::Uint32(cfg.input_patch_len as u32));
-    writer.add_metadata("timesfm25.output_patch_len",     GGUFMetaValue::Uint32(cfg.output_patch_len as u32));
-    writer.add_metadata("timesfm25.decode_index",         GGUFMetaValue::Uint32(cfg.decode_index as u32));
-    writer.add_metadata("timesfm25.quantile_count",       GGUFMetaValue::Uint32(cfg.quantiles.len() as u32));
-    writer.add_metadata("timesfm25.quantiles",            GGUFMetaValue::ArrayFloat32(cfg.quantiles.clone()));
-    writer.add_metadata("timesfm25.rope_theta",           GGUFMetaValue::Float64(cfg.rope_theta));
-    writer.add_metadata("timesfm25.rms_norm_epsilon",     GGUFMetaValue::Float64(cfg.rms_norm_eps));
-    writer.add_metadata("timesfm25.context_limit",        GGUFMetaValue::Uint32(cfg.context_limit as u32));
+    writer.add_metadata(
+        "general.architecture",
+        GGUFMetaValue::String("timesfm25".into()),
+    );
+    writer.add_metadata("general.name", GGUFMetaValue::String(model_id.into()));
+    writer.add_metadata(
+        "timesfm25.block_count",
+        GGUFMetaValue::Uint32(cfg.num_layers as u32),
+    );
+    writer.add_metadata(
+        "timesfm25.embedding_length",
+        GGUFMetaValue::Uint32(cfg.d_model as u32),
+    );
+    writer.add_metadata(
+        "timesfm25.feed_forward_length",
+        GGUFMetaValue::Uint32(cfg.d_ff as u32),
+    );
+    writer.add_metadata(
+        "timesfm25.attention.head_count",
+        GGUFMetaValue::Uint32(cfg.num_heads as u32),
+    );
+    writer.add_metadata(
+        "timesfm25.attention.head_dim",
+        GGUFMetaValue::Uint32(cfg.head_dim as u32),
+    );
+    writer.add_metadata(
+        "timesfm25.input_patch_len",
+        GGUFMetaValue::Uint32(cfg.input_patch_len as u32),
+    );
+    writer.add_metadata(
+        "timesfm25.output_patch_len",
+        GGUFMetaValue::Uint32(cfg.output_patch_len as u32),
+    );
+    writer.add_metadata(
+        "timesfm25.decode_index",
+        GGUFMetaValue::Uint32(cfg.decode_index as u32),
+    );
+    writer.add_metadata(
+        "timesfm25.quantile_count",
+        GGUFMetaValue::Uint32(cfg.quantiles.len() as u32),
+    );
+    writer.add_metadata(
+        "timesfm25.quantiles",
+        GGUFMetaValue::ArrayFloat32(cfg.quantiles.clone()),
+    );
+    writer.add_metadata(
+        "timesfm25.rope_theta",
+        GGUFMetaValue::Float64(cfg.rope_theta),
+    );
+    writer.add_metadata(
+        "timesfm25.rms_norm_epsilon",
+        GGUFMetaValue::Float64(cfg.rms_norm_eps),
+    );
+    writer.add_metadata(
+        "timesfm25.context_limit",
+        GGUFMetaValue::Uint32(cfg.context_limit as u32),
+    );
 }
 
 fn ggml_type_from_st(dtype: StDtype) -> anyhow::Result<GGMLType> {
     match dtype {
-        StDtype::F32  => Ok(GGMLType::F32),
-        StDtype::F16  => Ok(GGMLType::F16),
+        StDtype::F32 => Ok(GGMLType::F32),
+        StDtype::F16 => Ok(GGMLType::F16),
         StDtype::BF16 => Ok(GGMLType::BF16),
         other => anyhow::bail!("unsupported safetensors dtype: {other:?}"),
     }
 }
 
 fn cast_data(data: &[u8], src: GGMLType, dst: GGMLType) -> anyhow::Result<Vec<u8>> {
-    if src == dst { return Ok(data.to_vec()); }
+    if src == dst {
+        return Ok(data.to_vec());
+    }
     if dst == GGMLType::Q8_0 {
         let f32_values = decode_to_f32(data, src)?;
         return quantize_q8_0(&f32_values);
@@ -151,13 +202,17 @@ fn cast_data(data: &[u8], src: GGMLType, dst: GGMLType) -> anyhow::Result<Vec<u8
         (GGMLType::F32, GGMLType::F16) => {
             let vals = parse_f32_le(data)?;
             let mut out = Vec::with_capacity(vals.len() * 2);
-            for v in vals { out.extend_from_slice(&f32_to_f16_bits(v).to_le_bytes()); }
+            for v in vals {
+                out.extend_from_slice(&f32_to_f16_bits(v).to_le_bytes());
+            }
             Ok(out)
         }
         (GGMLType::F32, GGMLType::BF16) => {
             let vals = parse_f32_le(data)?;
             let mut out = Vec::with_capacity(vals.len() * 2);
-            for v in vals { out.extend_from_slice(&((v.to_bits() >> 16) as u16).to_le_bytes()); }
+            for v in vals {
+                out.extend_from_slice(&((v.to_bits() >> 16) as u16).to_le_bytes());
+            }
             Ok(out)
         }
         (GGMLType::F16, GGMLType::BF16) => {
@@ -199,12 +254,18 @@ fn cast_data(data: &[u8], src: GGMLType, dst: GGMLType) -> anyhow::Result<Vec<u8
 
 fn decode_to_f32(data: &[u8], src: GGMLType) -> anyhow::Result<Vec<f32>> {
     match src {
-        GGMLType::F32  => parse_f32_le(data),
-        GGMLType::F16  => data.chunks_exact(2)
+        GGMLType::F32 => parse_f32_le(data),
+        GGMLType::F16 => data
+            .chunks_exact(2)
             .map(|c| Ok(f16_to_f32(u16::from_le_bytes([c[0], c[1]]))))
             .collect(),
-        GGMLType::BF16 => data.chunks_exact(2)
-            .map(|c| Ok(f32::from_bits((u16::from_le_bytes([c[0], c[1]]) as u32) << 16)))
+        GGMLType::BF16 => data
+            .chunks_exact(2)
+            .map(|c| {
+                Ok(f32::from_bits(
+                    (u16::from_le_bytes([c[0], c[1]]) as u32) << 16,
+                ))
+            })
             .collect(),
         GGMLType::Q8_0 => anyhow::bail!("Q8_0 re-quantization not supported"),
     }
@@ -213,7 +274,10 @@ fn decode_to_f32(data: &[u8], src: GGMLType) -> anyhow::Result<Vec<f32>> {
 fn quantize_q8_0(values: &[f32]) -> anyhow::Result<Vec<u8>> {
     const BLOCK: usize = 32;
     if values.len() % BLOCK != 0 {
-        anyhow::bail!("Q8_0 requires elem count divisible by {BLOCK}, got {}", values.len());
+        anyhow::bail!(
+            "Q8_0 requires elem count divisible by {BLOCK}, got {}",
+            values.len()
+        );
     }
     let n_blocks = values.len() / BLOCK;
     let mut out = vec![0u8; n_blocks * 34];
@@ -232,8 +296,11 @@ fn quantize_q8_0(values: &[f32]) -> anyhow::Result<Vec<u8>> {
 }
 
 fn parse_f32_le(data: &[u8]) -> anyhow::Result<Vec<f32>> {
-    if data.len() % 4 != 0 { anyhow::bail!("f32 length not divisible by 4"); }
-    Ok(data.chunks_exact(4)
+    if data.len() % 4 != 0 {
+        anyhow::bail!("f32 length not divisible by 4");
+    }
+    Ok(data
+        .chunks_exact(4)
         .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
         .collect())
 }
@@ -243,11 +310,17 @@ fn f32_to_f16_bits(v: f32) -> u16 {
     let sign = ((bits >> 16) & 0x8000) as u16;
     let exp = ((bits >> 23) & 0xFF) as i32;
     let mantissa = bits & 0x007F_FFFF;
-    if exp == 0xFF { return sign | 0x7C00 | if mantissa != 0 { 0x0200 } else { 0 }; }
+    if exp == 0xFF {
+        return sign | 0x7C00 | if mantissa != 0 { 0x0200 } else { 0 };
+    }
     let new_exp = exp - 127 + 15;
-    if new_exp >= 31 { return sign | 0x7C00; }
+    if new_exp >= 31 {
+        return sign | 0x7C00;
+    }
     if new_exp <= 0 {
-        if new_exp < -10 { return sign; }
+        if new_exp < -10 {
+            return sign;
+        }
         let m = (mantissa | 0x0080_0000) >> (1 - new_exp);
         return sign | (m >> 13) as u16;
     }
@@ -259,13 +332,21 @@ fn f16_to_f32(bits: u16) -> f32 {
     let exp = ((bits >> 10) & 0x1F) as i32;
     let mantissa = (bits & 0x03FF) as u32;
     let f32_bits = if exp == 0 {
-        if mantissa == 0 { sign }
-        else {
-            let mut m = mantissa; let mut e = 0i32;
-            while m & 0x0400 == 0 { m <<= 1; e += 1; }
+        if mantissa == 0 {
+            sign
+        } else {
+            let mut m = mantissa;
+            let mut e = 0i32;
+            while m & 0x0400 == 0 {
+                m <<= 1;
+                e += 1;
+            }
             sign | ((127 - 15 - e + 1) as u32) << 23 | (m & 0x03FF) << 13
         }
-    } else if exp == 31 { sign | 0x7F80_0000 | (mantissa << 13) }
-    else { sign | ((exp + 127 - 15) as u32) << 23 | (mantissa << 13) };
+    } else if exp == 31 {
+        sign | 0x7F80_0000 | (mantissa << 13)
+    } else {
+        sign | ((exp + 127 - 15) as u32) << 23 | (mantissa << 13)
+    };
     f32::from_bits(f32_bits)
 }

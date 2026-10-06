@@ -16,13 +16,23 @@ pub struct SundialConfig {
     pub num_sampling_steps: usize,
 }
 
-fn default_output_token_lens() -> Vec<usize> { vec![720] }
-fn default_flow_depth() -> usize { 3 }
-fn default_sampling_steps() -> usize { 50 }
+fn default_output_token_lens() -> Vec<usize> {
+    vec![720]
+}
+fn default_flow_depth() -> usize {
+    3
+}
+fn default_sampling_steps() -> usize {
+    50
+}
 
 impl SundialConfig {
-    pub fn head_dim(&self) -> usize { self.hidden_size / self.num_attention_heads }
-    pub fn output_token_len(&self) -> usize { self.output_token_lens[0] }
+    pub fn head_dim(&self) -> usize {
+        self.hidden_size / self.num_attention_heads
+    }
+    pub fn output_token_len(&self) -> usize {
+        self.output_token_lens[0]
+    }
 }
 
 impl Default for SundialConfig {

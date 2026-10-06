@@ -4,8 +4,8 @@ use std::path::Path;
 
 use anyhow::Context;
 use indicatif::{ProgressBar, ProgressStyle};
-use safetensors::SafeTensors;
 use safetensors::Dtype as StDtype;
+use safetensors::SafeTensors;
 
 use zsfm_gguf::{GGMLType, GGUFMetaValue, GGUFWriter};
 use zsfm_hub::ModelFiles;
@@ -34,7 +34,11 @@ pub fn convert(
         .collect::<anyhow::Result<_>>()?;
 
     let total_tensors: usize = shard_views.iter().map(|s| s.len()).sum();
-    println!("Found {} tensors across {} shard(s).", total_tensors, shard_views.len());
+    println!(
+        "Found {} tensors across {} shard(s).",
+        total_tensors,
+        shard_views.len()
+    );
 
     let pb = ProgressBar::new(total_tensors as u64);
     pb.set_style(
@@ -62,8 +66,12 @@ pub fn convert(
                 }
             };
 
-            let src_dtype = ggml_type_from_st(tensor_view.dtype())
-                .with_context(|| format!("tensor {hf_name}: unsupported dtype {:?}", tensor_view.dtype()))?;
+            let src_dtype = ggml_type_from_st(tensor_view.dtype()).with_context(|| {
+                format!(
+                    "tensor {hf_name}: unsupported dtype {:?}",
+                    tensor_view.dtype()
+                )
+            })?;
 
             let raw_data = tensor_view.data();
             let py_shape = tensor_view.shape();
@@ -71,20 +79,21 @@ pub fn convert(
             let innermost = py_shape.last().copied().unwrap_or(1);
             let _outermost = py_shape.first().copied().unwrap_or(1);
 
-            let (dst_dtype, gguf_shape, tensor_data) =
-                if opts.output_dtype == GGMLType::Q8_0 && (innermost % 32 != 0 || n_elems % 32 != 0) {
-                    fallback_count += 1;
-                    let data = cast_data(raw_data, src_dtype, GGMLType::F32)
-                        .with_context(|| format!("tensor {hf_name}: cast failed"))?;
-                    let gs = py_shape.iter().rev().map(|&d| d as u64).collect();
-                    (GGMLType::F32, gs, data)
-                } else {
-                    let dst = opts.output_dtype;
-                    let data = cast_data(raw_data, src_dtype, dst)
-                        .with_context(|| format!("tensor {hf_name}: cast failed"))?;
-                    let gs = py_shape.iter().rev().map(|&d| d as u64).collect();
-                    (dst, gs, data)
-                };
+            let (dst_dtype, gguf_shape, tensor_data) = if opts.output_dtype == GGMLType::Q8_0
+                && (innermost % 32 != 0 || n_elems % 32 != 0)
+            {
+                fallback_count += 1;
+                let data = cast_data(raw_data, src_dtype, GGMLType::F32)
+                    .with_context(|| format!("tensor {hf_name}: cast failed"))?;
+                let gs = py_shape.iter().rev().map(|&d| d as u64).collect();
+                (GGMLType::F32, gs, data)
+            } else {
+                let dst = opts.output_dtype;
+                let data = cast_data(raw_data, src_dtype, dst)
+                    .with_context(|| format!("tensor {hf_name}: cast failed"))?;
+                let gs = py_shape.iter().rev().map(|&d| d as u64).collect();
+                (dst, gs, data)
+            };
 
             writer.add_tensor(gguf_name, gguf_shape, dst_dtype, tensor_data);
             mapped += 1;
@@ -95,13 +104,18 @@ pub fn convert(
     pb.finish_with_message("tensors processed");
 
     if !skipped.is_empty() {
-        eprintln!("\nWarning: {} tensor(s) skipped (unrecognised names):", skipped.len());
+        eprintln!(
+            "\nWarning: {} tensor(s) skipped (unrecognised names):",
+            skipped.len()
+        );
         for name in &skipped {
             eprintln!("  {name}");
         }
     }
     if fallback_count > 0 {
-        eprintln!("\nNote: {fallback_count} tensor(s) fell back to F32 (too small for Q8_0 blocks).");
+        eprintln!(
+            "\nNote: {fallback_count} tensor(s) fell back to F32 (too small for Q8_0 blocks)."
+        );
     }
 
     println!("Writing {mapped} tensors to {} …", output_path.display());
@@ -115,28 +129,58 @@ pub fn convert(
 }
 
 fn write_metadata(writer: &mut GGUFWriter, model_id: &str, config: &TtmConfig) {
-    writer.add_metadata("general.architecture",    GGUFMetaValue::String("ttm".into()));
-    writer.add_metadata("general.name",            GGUFMetaValue::String(model_id.into()));
-    writer.add_metadata("ttm.context_length",      GGUFMetaValue::Uint32(config.context_length as u32));
-    writer.add_metadata("ttm.prediction_length",   GGUFMetaValue::Uint32(config.prediction_length as u32));
-    writer.add_metadata("ttm.patch_length",        GGUFMetaValue::Uint32(config.patch_length as u32));
-    writer.add_metadata("ttm.patch_stride",        GGUFMetaValue::Uint32(config.patch_stride as u32));
-    writer.add_metadata("ttm.d_model",             GGUFMetaValue::Uint32(config.d_model as u32));
-    writer.add_metadata("ttm.num_layers",          GGUFMetaValue::Uint32(config.num_layers as u32));
-    writer.add_metadata("ttm.decoder_d_model",     GGUFMetaValue::Uint32(config.decoder_d_model as u32));
-    writer.add_metadata("ttm.decoder_num_layers",  GGUFMetaValue::Uint32(config.decoder_num_layers as u32));
-    writer.add_metadata("ttm.expansion_factor",    GGUFMetaValue::Uint32(config.expansion_factor as u32));
-    writer.add_metadata("ttm.adaptive_patching_levels", GGUFMetaValue::Uint32(config.adaptive_patching_levels as u32));
-    writer.add_metadata("ttm.num_patches",         GGUFMetaValue::Uint32(config.num_patches as u32));
-    writer.add_metadata("ttm.scaling",             GGUFMetaValue::String(config.scaling.clone()));
-    writer.add_metadata("ttm.gated_attn",          GGUFMetaValue::Bool(config.gated_attn));
-    writer.add_metadata("ttm.norm_eps",            GGUFMetaValue::Float64(config.norm_eps));
+    writer.add_metadata("general.architecture", GGUFMetaValue::String("ttm".into()));
+    writer.add_metadata("general.name", GGUFMetaValue::String(model_id.into()));
+    writer.add_metadata(
+        "ttm.context_length",
+        GGUFMetaValue::Uint32(config.context_length as u32),
+    );
+    writer.add_metadata(
+        "ttm.prediction_length",
+        GGUFMetaValue::Uint32(config.prediction_length as u32),
+    );
+    writer.add_metadata(
+        "ttm.patch_length",
+        GGUFMetaValue::Uint32(config.patch_length as u32),
+    );
+    writer.add_metadata(
+        "ttm.patch_stride",
+        GGUFMetaValue::Uint32(config.patch_stride as u32),
+    );
+    writer.add_metadata("ttm.d_model", GGUFMetaValue::Uint32(config.d_model as u32));
+    writer.add_metadata(
+        "ttm.num_layers",
+        GGUFMetaValue::Uint32(config.num_layers as u32),
+    );
+    writer.add_metadata(
+        "ttm.decoder_d_model",
+        GGUFMetaValue::Uint32(config.decoder_d_model as u32),
+    );
+    writer.add_metadata(
+        "ttm.decoder_num_layers",
+        GGUFMetaValue::Uint32(config.decoder_num_layers as u32),
+    );
+    writer.add_metadata(
+        "ttm.expansion_factor",
+        GGUFMetaValue::Uint32(config.expansion_factor as u32),
+    );
+    writer.add_metadata(
+        "ttm.adaptive_patching_levels",
+        GGUFMetaValue::Uint32(config.adaptive_patching_levels as u32),
+    );
+    writer.add_metadata(
+        "ttm.num_patches",
+        GGUFMetaValue::Uint32(config.num_patches as u32),
+    );
+    writer.add_metadata("ttm.scaling", GGUFMetaValue::String(config.scaling.clone()));
+    writer.add_metadata("ttm.gated_attn", GGUFMetaValue::Bool(config.gated_attn));
+    writer.add_metadata("ttm.norm_eps", GGUFMetaValue::Float64(config.norm_eps));
 }
 
 fn ggml_type_from_st(dtype: StDtype) -> anyhow::Result<GGMLType> {
     match dtype {
-        StDtype::F32  => Ok(GGMLType::F32),
-        StDtype::F16  => Ok(GGMLType::F16),
+        StDtype::F32 => Ok(GGMLType::F32),
+        StDtype::F16 => Ok(GGMLType::F16),
         StDtype::BF16 => Ok(GGMLType::BF16),
         other => anyhow::bail!("unsupported safetensors dtype: {other:?}"),
     }
@@ -221,8 +265,8 @@ fn cast_data(data: &[u8], src: GGMLType, dst: GGMLType) -> anyhow::Result<Vec<u8
 
 fn decode_to_f32(data: &[u8], src: GGMLType) -> anyhow::Result<Vec<f32>> {
     match src {
-        GGMLType::F32  => parse_f32_le(data),
-        GGMLType::F16  => data
+        GGMLType::F32 => parse_f32_le(data),
+        GGMLType::F16 => data
             .chunks_exact(2)
             .map(|c| Ok(f16_to_f32(u16::from_le_bytes([c[0], c[1]]))))
             .collect(),
@@ -240,7 +284,10 @@ fn decode_to_f32(data: &[u8], src: GGMLType) -> anyhow::Result<Vec<f32>> {
 fn quantize_q8_0(values: &[f32]) -> anyhow::Result<Vec<u8>> {
     const BLOCK: usize = 32;
     if values.len() % BLOCK != 0 {
-        anyhow::bail!("Q8_0 requires element count divisible by {BLOCK}, got {}", values.len());
+        anyhow::bail!(
+            "Q8_0 requires element count divisible by {BLOCK}, got {}",
+            values.len()
+        );
     }
     let n_blocks = values.len() / BLOCK;
     let mut out = vec![0u8; n_blocks * 34];
@@ -279,9 +326,13 @@ fn f32_to_f16_bits(v: f32) -> u16 {
         return sign | 0x7C00 | if mantissa != 0 { 0x0200 } else { 0 };
     }
     let new_exp = exp - 127 + 15;
-    if new_exp >= 31 { return sign | 0x7C00; }
+    if new_exp >= 31 {
+        return sign | 0x7C00;
+    }
     if new_exp <= 0 {
-        if new_exp < -10 { return sign; }
+        if new_exp < -10 {
+            return sign;
+        }
         let m = (mantissa | 0x0080_0000) >> (1 - new_exp);
         return sign | (m >> 13) as u16;
     }
@@ -293,11 +344,15 @@ fn f16_to_f32(bits: u16) -> f32 {
     let exp = ((bits >> 10) & 0x1F) as i32;
     let mantissa = (bits & 0x03FF) as u32;
     let f32_bits = if exp == 0 {
-        if mantissa == 0 { sign }
-        else {
+        if mantissa == 0 {
+            sign
+        } else {
             let mut m = mantissa;
             let mut e = 0i32;
-            while m & 0x0400 == 0 { m <<= 1; e += 1; }
+            while m & 0x0400 == 0 {
+                m <<= 1;
+                e += 1;
+            }
             sign | ((127 - 15 - e + 1) as u32) << 23 | (m & 0x03FF) << 13
         }
     } else if exp == 31 {

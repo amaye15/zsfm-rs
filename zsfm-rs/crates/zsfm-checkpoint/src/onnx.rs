@@ -34,6 +34,14 @@ const DT_BFLOAT16: i32 = 16;
 const LOCATION_EXTERNAL: u64 = 1;
 
 pub fn load_onnx(path: &Path) -> Result<Checkpoint> {
+    const MAX_ONNX_BYTES: u64 = 8 << 30;
+    const MAX_INITIALIZERS: usize = 100_000;
+    let meta = std::fs::metadata(path).with_context(|| format!("stat {}", path.display()))?;
+    anyhow::ensure!(
+        meta.len() <= MAX_ONNX_BYTES,
+        "ONNX file too large: {} bytes (max {MAX_ONNX_BYTES})",
+        meta.len()
+    );
     let bytes = std::fs::read(path).with_context(|| format!("read {}", path.display()))?;
     let initializers = parse_model(&bytes).context("parse ONNX protobuf")?;
     anyhow::ensure!(
@@ -41,12 +49,20 @@ pub fn load_onnx(path: &Path) -> Result<Checkpoint> {
         "ONNX graph has no initializer tensors — the weights may live in external \
          data files or be supplied as runtime inputs"
     );
+    anyhow::ensure!(
+        initializers.len() <= MAX_INITIALIZERS,
+        "ONNX has too many initializers: {} (max {MAX_INITIALIZERS})",
+        initializers.len()
+    );
 
     let mut tensors = Vec::with_capacity(initializers.len());
     for t in &initializers {
         tensors.push(tensor_proto_to_raw(t)?);
     }
-    Ok(Checkpoint { tensors, metadata: Vec::new() })
+    Ok(Checkpoint {
+        tensors,
+        metadata: Vec::new(),
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -277,7 +293,11 @@ fn tensor_proto_to_raw(t: &TensorProto) -> Result<RawTensor> {
             }
         }
         DT_FLOAT16 | DT_BFLOAT16 => {
-            let dtype = if t.data_type == DT_FLOAT16 { SrcDtype::F16 } else { SrcDtype::BF16 };
+            let dtype = if t.data_type == DT_FLOAT16 {
+                SrcDtype::F16
+            } else {
+                SrcDtype::BF16
+            };
             if !t.raw_data.is_empty() {
                 (dtype, t.raw_data.clone())
             } else {
@@ -340,7 +360,12 @@ fn tensor_proto_to_raw(t: &TensorProto) -> Result<RawTensor> {
         other => bail!("tensor {name}: ONNX data_type {other} not supported"),
     };
 
-    Ok(RawTensor { name, shape, dtype, data })
+    Ok(RawTensor {
+        name,
+        shape,
+        dtype,
+        data,
+    })
 }
 
 fn decode_small_ints(raw: &[u8], data_type: i32) -> Result<Vec<f32>> {

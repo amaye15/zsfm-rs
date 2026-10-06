@@ -4,14 +4,18 @@
 //! place; every call site keeps producing bit-identical results to its
 //! former private copy.
 
+mod attn;
 mod ffn;
 mod gguf;
 mod linear;
 mod mask;
 mod norm;
+mod rope;
 
+pub use attn::scaled_dot_product_attention;
 pub use ffn::swiglu_ffn;
 pub use gguf::{load_tensor, load_vec, load_weight, try_load_tensor};
 pub use linear::{linear, linear_bias, linear_nobias};
-pub use mask::make_causal_mask;
-pub use norm::{layer_norm, rms_norm};
+pub use mask::{make_causal_mask, make_causal_mask_heads};
+pub use norm::{layer_norm, layer_norm_no_affine, rms_norm, softmax_host};
+pub use rope::{apply_interleaved_rope, build_rope_tables, rope_tables};

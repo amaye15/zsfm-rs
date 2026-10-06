@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 use std::io::BufReader;
-use std::sync::Mutex;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use anyhow::{Context, Result};
-use candle_core::{DType, Device, Tensor};
 use candle_core::quantized::gguf_file;
+use candle_core::{DType, Device, Tensor};
 use candle_nn::ops;
 use simdeez::prelude::*;
 
@@ -13,13 +13,19 @@ use crate::config::FlowStateConfig;
 
 simd_runtime_generate!(
     fn ssm_scan_step(
-        state_r: &mut [f32], state_i: &mut [f32],
-        a_r: &[f32], a_i: &[f32],
-        bu_r: &[f32], bu_i: &[f32],
+        state_r: &mut [f32],
+        state_i: &mut [f32],
+        a_r: &[f32],
+        a_i: &[f32],
+        bu_r: &[f32],
+        bu_i: &[f32],
     ) {
-        let mut sr = &mut state_r[..]; let mut si = &mut state_i[..];
-        let mut ar = &a_r[..];         let mut ai = &a_i[..];
-        let mut br = &bu_r[..];        let mut bi = &bu_i[..];
+        let mut sr = &mut state_r[..];
+        let mut si = &mut state_i[..];
+        let mut ar = &a_r[..];
+        let mut ai = &a_i[..];
+        let mut br = &bu_r[..];
+        let mut bi = &bu_i[..];
 
         while sr.len() >= S::Vf32::WIDTH {
             let sr_v = S::Vf32::load_from_slice(sr);
@@ -37,9 +43,12 @@ simd_runtime_generate!(
             new_r.copy_to_slice(sr);
             new_i.copy_to_slice(si);
 
-            sr = &mut sr[S::Vf32::WIDTH..]; si = &mut si[S::Vf32::WIDTH..];
-            ar = &ar[S::Vf32::WIDTH..];     ai = &ai[S::Vf32::WIDTH..];
-            br = &br[S::Vf32::WIDTH..];     bi = &bi[S::Vf32::WIDTH..];
+            sr = &mut sr[S::Vf32::WIDTH..];
+            si = &mut si[S::Vf32::WIDTH..];
+            ar = &ar[S::Vf32::WIDTH..];
+            ai = &ai[S::Vf32::WIDTH..];
+            br = &br[S::Vf32::WIDTH..];
+            bi = &bi[S::Vf32::WIDTH..];
         }
 
         for j in 0..sr.len() {
@@ -60,11 +69,11 @@ pub struct InferConfig {
     pub num_layers: usize,
     pub embed_dim: usize,
     pub state_dim: usize,
-    pub n_inputs: usize,        // 2 for with_missing (value + mask)
+    pub n_inputs: usize, // 2 for with_missing (value + mask)
     pub decoder_dim: usize,
     pub decoder_patch_len: usize,
     pub quantiles: Vec<f32>,
-    pub basis_range: [f32; 2],  // e.g. [-1.0, 0.95] for "legs"
+    pub basis_range: [f32; 2], // e.g. [-1.0, 0.95] for "legs"
     pub context_length: usize,
     pub eps: f32,
 }
@@ -75,22 +84,24 @@ pub struct InferConfig {
 impl From<&FlowStateConfig> for InferConfig {
     fn from(c: &FlowStateConfig) -> Self {
         InferConfig {
-            num_layers:        c.encoder_num_layers as usize,
-            embed_dim:         c.embedding_feature_dim as usize,
-            state_dim:         c.encoder_state_dim as usize,
-            n_inputs:          c.n_inputs() as usize,
-            decoder_dim:       c.decoder_dim as usize,
+            num_layers: c.encoder_num_layers as usize,
+            embed_dim: c.embedding_feature_dim as usize,
+            state_dim: c.encoder_state_dim as usize,
+            n_inputs: c.n_inputs() as usize,
+            decoder_dim: c.decoder_dim as usize,
             decoder_patch_len: c.decoder_patch_len as usize,
-            quantiles:         c.quantiles.clone(),
-            basis_range:       c.basis_range(),
-            context_length:    c.context_length as usize,
-            eps:               1e-5,
+            quantiles: c.quantiles.clone(),
+            basis_range: c.basis_range(),
+            context_length: c.context_length as usize,
+            eps: 1e-5,
         }
     }
 }
 
 impl InferConfig {
-    pub fn quantiles(&self) -> &[f32] { &self.quantiles }
+    pub fn quantiles(&self) -> &[f32] {
+        &self.quantiles
+    }
     pub fn median_index(&self) -> usize {
         self.quantiles
             .iter()
@@ -122,7 +133,10 @@ pub struct FlowStateModelBuilder {
 
 impl FlowStateModelBuilder {
     fn new(gguf_path: impl Into<PathBuf>) -> Self {
-        Self { gguf_path: gguf_path.into(), config: None }
+        Self {
+            gguf_path: gguf_path.into(),
+            config: None,
+        }
     }
 
     pub fn config(mut self, config: InferConfig) -> Self {
@@ -136,9 +150,9 @@ impl FlowStateModelBuilder {
     }
 
     pub fn build(self) -> Result<FlowStateModel> {
-        let config = self
-            .config
-            .context("FlowStateModelBuilder: no config set — call .config(...) or .config_from(...)")?;
+        let config = self.config.context(
+            "FlowStateModelBuilder: no config set — call .config(...) or .config_from(...)",
+        )?;
         FlowStateModel::load(&self.gguf_path, config)
     }
 }
@@ -148,34 +162,34 @@ impl FlowStateModelBuilder {
 // ---------------------------------------------------------------------------
 
 struct S5Weights {
-    log_lambda_real: Vec<f32>,  // [state_dim]
-    lambda_imag:     Vec<f32>,  // [state_dim]
-    b_r: Tensor,                // [state_dim, embed_dim]
-    b_i: Tensor,                // [state_dim, embed_dim]
-    c_r: Tensor,                // [embed_dim, state_dim]
-    c_i: Tensor,                // [embed_dim, state_dim]
-    d:   Tensor,                // [embed_dim]
-    log_delta: Vec<f32>,        // [state_dim]
+    log_lambda_real: Vec<f32>, // [state_dim]
+    lambda_imag: Vec<f32>,     // [state_dim]
+    b_r: Tensor,               // [state_dim, embed_dim]
+    b_i: Tensor,               // [state_dim, embed_dim]
+    c_r: Tensor,               // [embed_dim, state_dim]
+    c_i: Tensor,               // [embed_dim, state_dim]
+    d: Tensor,                 // [embed_dim]
+    log_delta: Vec<f32>,       // [state_dim]
 }
 
 struct BlockWeights {
-    ssm:        S5Weights,
-    out_weight: Tensor,   // [embed_dim, embed_dim]
-    out_bias:   Tensor,   // [embed_dim]
-    norm_weight: Tensor,  // [embed_dim]
-    norm_bias:   Tensor,  // [embed_dim]
+    ssm: S5Weights,
+    out_weight: Tensor,  // [embed_dim, embed_dim]
+    out_bias: Tensor,    // [embed_dim]
+    norm_weight: Tensor, // [embed_dim]
+    norm_bias: Tensor,   // [embed_dim]
     // cached per scale_factor: (A_bar_real, A_bar_imag, B_bar_real_t, B_bar_imag_t)
     disc_cache: Mutex<HashMap<u32, (Vec<f32>, Vec<f32>, Tensor, Tensor)>>,
 }
 
 pub struct FlowStateModel {
-    device:     Device,
+    device: Device,
     pub config: InferConfig,
-    embed_w:    Tensor,   // [embed_dim, n_inputs]
-    embed_b:    Tensor,   // [embed_dim]
-    blocks:     Vec<BlockWeights>,
-    decoder_w:  Tensor,   // [n_quantiles * decoder_dim, embed_dim]
-    decoder_b:  Tensor,   // [n_quantiles * decoder_dim]
+    embed_w: Tensor, // [embed_dim, n_inputs]
+    embed_b: Tensor, // [embed_dim]
+    blocks: Vec<BlockWeights>,
+    decoder_w: Tensor, // [n_quantiles * decoder_dim, embed_dim]
+    decoder_b: Tensor, // [n_quantiles * decoder_dim]
     legendre_cache: Mutex<HashMap<usize, Tensor>>,
 }
 
@@ -215,22 +229,52 @@ impl FlowStateModel {
         let mut blocks = Vec::with_capacity(config.num_layers);
         for n in 0..config.num_layers {
             let ssm = S5Weights {
-                log_lambda_real: load_f32_vec(&content, &mut file, &format!("blk.{n}.ssm.log_lambda_real"), &device)?,
-                lambda_imag:     load_f32_vec(&content, &mut file, &format!("blk.{n}.ssm.lambda_imag"),     &device)?,
+                log_lambda_real: load_f32_vec(
+                    &content,
+                    &mut file,
+                    &format!("blk.{n}.ssm.log_lambda_real"),
+                    &device,
+                )?,
+                lambda_imag: load_f32_vec(
+                    &content,
+                    &mut file,
+                    &format!("blk.{n}.ssm.lambda_imag"),
+                    &device,
+                )?,
                 b_r: load_matrix(&content, &mut file, &format!("blk.{n}.ssm.b_r"), &device)?,
                 b_i: load_matrix(&content, &mut file, &format!("blk.{n}.ssm.b_i"), &device)?,
                 c_r: load_matrix(&content, &mut file, &format!("blk.{n}.ssm.c_r"), &device)?,
                 c_i: load_matrix(&content, &mut file, &format!("blk.{n}.ssm.c_i"), &device)?,
-                d:          load_matrix(&content, &mut file, &format!("blk.{n}.ssm.d"),         &device)?,
-                log_delta:  load_f32_vec(&content, &mut file, &format!("blk.{n}.ssm.log_delta"), &device)?,
+                d: load_matrix(&content, &mut file, &format!("blk.{n}.ssm.d"), &device)?,
+                log_delta: load_f32_vec(
+                    &content,
+                    &mut file,
+                    &format!("blk.{n}.ssm.log_delta"),
+                    &device,
+                )?,
             };
             blocks.push(BlockWeights {
                 ssm,
-                out_weight:  load_matrix(&content, &mut file, &format!("blk.{n}.out.weight"),  &device)?,
-                out_bias:    load_matrix(&content, &mut file, &format!("blk.{n}.out.bias"),    &device)?,
-                norm_weight: load_matrix(&content, &mut file, &format!("blk.{n}.norm.weight"), &device)?,
-                norm_bias:   load_matrix(&content, &mut file, &format!("blk.{n}.norm.bias"),   &device)?,
-                disc_cache:  Mutex::new(HashMap::new()),
+                out_weight: load_matrix(
+                    &content,
+                    &mut file,
+                    &format!("blk.{n}.out.weight"),
+                    &device,
+                )?,
+                out_bias: load_matrix(&content, &mut file, &format!("blk.{n}.out.bias"), &device)?,
+                norm_weight: load_matrix(
+                    &content,
+                    &mut file,
+                    &format!("blk.{n}.norm.weight"),
+                    &device,
+                )?,
+                norm_bias: load_matrix(
+                    &content,
+                    &mut file,
+                    &format!("blk.{n}.norm.bias"),
+                    &device,
+                )?,
+                disc_cache: Mutex::new(HashMap::new()),
             });
         }
 
@@ -260,7 +304,11 @@ impl FlowStateModel {
 
     /// Forecast `prediction_length` steps from a univariate context series.
     /// Returns `Vec<Vec<f32>>` of shape `[n_quantiles][prediction_length]`.
-    pub fn forecast(&self, context: &[f32], prediction_length: usize) -> anyhow::Result<Vec<Vec<f32>>> {
+    pub fn forecast(
+        &self,
+        context: &[f32],
+        prediction_length: usize,
+    ) -> anyhow::Result<Vec<Vec<f32>>> {
         let cfg = &self.config;
 
         // 1. Pad or trim context to match model requirements
@@ -272,11 +320,18 @@ impl FlowStateModel {
         // 2. Causal RevIN: compute prefix statistics
         let (normed_values, final_mean, final_std) = causal_revin_norm(context, cfg.eps);
         if std::env::var("FLOWSTATE_DEBUG").is_ok() {
-            eprintln!("RevIN final_mean={:.8} final_std={:.8}", final_mean, final_std);
-            eprintln!("normed[0..4]: {:.6} {:.6} {:.6} {:.6}",
-                      normed_values[0], normed_values[1], normed_values[2], normed_values[3]);
-            eprintln!("normed[252..256]: {:.6} {:.6} {:.6} {:.6}",
-                      normed_values[252], normed_values[253], normed_values[254], normed_values[255]);
+            eprintln!(
+                "RevIN final_mean={:.8} final_std={:.8}",
+                final_mean, final_std
+            );
+            eprintln!(
+                "normed[0..4]: {:.6} {:.6} {:.6} {:.6}",
+                normed_values[0], normed_values[1], normed_values[2], normed_values[3]
+            );
+            eprintln!(
+                "normed[252..256]: {:.6} {:.6} {:.6} {:.6}",
+                normed_values[252], normed_values[253], normed_values[254], normed_values[255]
+            );
         }
 
         // 3. Build input tensor [seq_len, n_inputs] with mask channel = 0 (no missing)
@@ -308,35 +363,54 @@ impl FlowStateModel {
         for (i, block) in self.blocks.iter().enumerate() {
             let is_last = i == num_layers - 1;
             hidden = self.apply_s5_layer(
-                hidden, block, scale_factor, is_last,
-                &mut scan_r, &mut scan_i, &mut state_r, &mut state_i,
+                hidden,
+                block,
+                scale_factor,
+                is_last,
+                &mut scan_r,
+                &mut scan_i,
+                &mut state_r,
+                &mut state_i,
             )?;
         }
         // After last layer: hidden is [1, embed_dim]
 
         // 7. Decoder: linear → [n_q, decoder_dim]
         let n_q = cfg.quantiles.len();
-        let coeffs = linear(&hidden, &self.decoder_w, &self.decoder_b)?
-            .reshape((n_q, cfg.decoder_dim))?;
+        let coeffs =
+            linear(&hidden, &self.decoder_w, &self.decoder_b)?.reshape((n_q, cfg.decoder_dim))?;
 
         if std::env::var("FLOWSTATE_DEBUG").is_ok() {
             let coeffs_data: Vec<f32> = coeffs.flatten_all()?.to_vec1()?;
             for qi in 0..n_q {
                 for d in 0..cfg.decoder_dim {
-                    eprintln!("COEFF,{qi},{d},{:.8}", coeffs_data[qi * cfg.decoder_dim + d]);
+                    eprintln!(
+                        "COEFF,{qi},{d},{:.8}",
+                        coeffs_data[qi * cfg.decoder_dim + d]
+                    );
                 }
             }
         }
 
         // 8. Legendre basis [prediction_length, decoder_dim] — cached per prediction_length
         let basis = {
-            let mut cache = self.legendre_cache.lock().unwrap();
+            let mut cache = self
+                .legendre_cache
+                .lock()
+                .map_err(|_| anyhow::anyhow!("cache mutex poisoned"))?;
             if !cache.contains_key(&prediction_length) {
-                let raw = legendre_basis(prediction_length, cfg.decoder_dim, cfg.basis_range,
-                                        scale_factor, cfg.decoder_patch_len);
+                let raw = legendre_basis(
+                    prediction_length,
+                    cfg.decoder_dim,
+                    cfg.basis_range,
+                    scale_factor,
+                    cfg.decoder_patch_len,
+                );
                 let flat: Vec<f32> = raw.into_iter().flatten().collect();
-                cache.insert(prediction_length,
-                    Tensor::from_vec(flat, (prediction_length, cfg.decoder_dim), &self.device)?);
+                cache.insert(
+                    prediction_length,
+                    Tensor::from_vec(flat, (prediction_length, cfg.decoder_dim), &self.device)?,
+                );
             }
             cache[&prediction_length].clone()
         };
@@ -364,7 +438,7 @@ impl FlowStateModel {
         let mut output = vec![vec![0.0f32; prediction_length]; n_q];
         for p in 0..prediction_length {
             let mut sorted: Vec<f32> = (0..n_q).map(|q| denormed[q][p]).collect();
-            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            sorted.sort_by(|a, b| a.total_cmp(b));
             for (qi, &prob) in cfg.quantiles.iter().enumerate() {
                 let idx = (n_q - 1) as f32 * prob;
                 let lower = idx.floor() as usize;
@@ -387,11 +461,11 @@ impl FlowStateModel {
     #[allow(clippy::too_many_arguments)]
     fn apply_s5_layer(
         &self,
-        x: Tensor,          // [seq_len, embed_dim]
+        x: Tensor, // [seq_len, embed_dim]
         block: &BlockWeights,
         scale_factor: f32,
         is_last: bool,
-        scan_r: &mut Vec<f32>,  // scratch: seq_len * state_dim (reused across blocks)
+        scan_r: &mut Vec<f32>, // scratch: seq_len * state_dim (reused across blocks)
         scan_i: &mut Vec<f32>,
         state_r: &mut Vec<f32>, // scratch: state_dim (running real state)
         state_i: &mut Vec<f32>, // scratch: state_dim (running imag state)
@@ -404,7 +478,7 @@ impl FlowStateModel {
 
         // Save skip connection (trimmed for last layer)
         let skip = if is_last {
-            x.narrow(0, seq_len - 1, 1)?  // [1, embed_dim]
+            x.narrow(0, seq_len - 1, 1)? // [1, embed_dim]
         } else {
             x.clone()
         };
@@ -412,9 +486,13 @@ impl FlowStateModel {
         // ---- Get or compute discretized SSM matrices (cached per scale_factor) ----
         let (a_bar_r, a_bar_i, b_bar_r_t, b_bar_i_t) = {
             let key = scale_factor.to_bits();
-            let mut cache = block.disc_cache.lock().unwrap();
+            let mut cache = block
+                .disc_cache
+                .lock()
+                .map_err(|_| anyhow::anyhow!("cache mutex poisoned"))?;
             if !cache.contains_key(&key) {
-                let result = discretize(&block.ssm, scale_factor, state_dim, embed_dim, &self.device)?;
+                let result =
+                    discretize(&block.ssm, scale_factor, state_dim, embed_dim, &self.device)?;
                 cache.insert(key, result);
             }
             let (ar, ai, brt, bit) = &cache[&key];
@@ -422,7 +500,7 @@ impl FlowStateModel {
         };
 
         // B @ x for all timesteps at once: x [seq_len, embed_dim] × B^T [embed_dim, state_dim]
-        let bu_r = x.matmul(&b_bar_r_t.t()?)?;  // [seq_len, state_dim]
+        let bu_r = x.matmul(&b_bar_r_t.t()?)?; // [seq_len, state_dim]
         let bu_i = x.matmul(&b_bar_i_t.t()?)?;
         let bu_r_data: Vec<f32> = bu_r.flatten_all()?.to_vec1()?;
         let bu_i_data: Vec<f32> = bu_i.flatten_all()?.to_vec1()?;
@@ -442,8 +520,12 @@ impl FlowStateModel {
                 let bu_r_t = &bu_r_data[t * state_dim..(t + 1) * state_dim];
                 let bu_i_t = &bu_i_data[t * state_dim..(t + 1) * state_dim];
                 ssm_scan_step(
-                    &mut state_r[..state_dim], &mut state_i[..state_dim],
-                    &a_bar_r, &a_bar_i, bu_r_t, bu_i_t,
+                    &mut state_r[..state_dim],
+                    &mut state_i[..state_dim],
+                    &a_bar_r,
+                    &a_bar_i,
+                    bu_r_t,
+                    bu_i_t,
                 );
             }
             let hr = Tensor::from_vec(state_r[..state_dim].to_vec(), (1, state_dim), &self.device)?;
@@ -454,21 +536,37 @@ impl FlowStateModel {
             // Ensure scratch buffers are large enough (they are since caller sized them for
             // the maximum seq_len * state_dim of the first call in this forecast).
             let needed = seq_len * state_dim;
-            if scan_r.len() < needed { scan_r.resize(needed, 0.0); }
-            if scan_i.len() < needed { scan_i.resize(needed, 0.0); }
+            if scan_r.len() < needed {
+                scan_r.resize(needed, 0.0);
+            }
+            if scan_i.len() < needed {
+                scan_i.resize(needed, 0.0);
+            }
             for t in 0..seq_len {
                 let bu_r_t = &bu_r_data[t * state_dim..(t + 1) * state_dim];
                 let bu_i_t = &bu_i_data[t * state_dim..(t + 1) * state_dim];
                 ssm_scan_step(
-                    &mut state_r[..state_dim], &mut state_i[..state_dim],
-                    &a_bar_r, &a_bar_i, bu_r_t, bu_i_t,
+                    &mut state_r[..state_dim],
+                    &mut state_i[..state_dim],
+                    &a_bar_r,
+                    &a_bar_i,
+                    bu_r_t,
+                    bu_i_t,
                 );
                 let row = t * state_dim;
                 scan_r[row..row + state_dim].copy_from_slice(&state_r[..state_dim]);
                 scan_i[row..row + state_dim].copy_from_slice(&state_i[..state_dim]);
             }
-            let hr = Tensor::from_vec(scan_r[..needed].to_vec(), (seq_len, state_dim), &self.device)?;
-            let hi = Tensor::from_vec(scan_i[..needed].to_vec(), (seq_len, state_dim), &self.device)?;
+            let hr = Tensor::from_vec(
+                scan_r[..needed].to_vec(),
+                (seq_len, state_dim),
+                &self.device,
+            )?;
+            let hi = Tensor::from_vec(
+                scan_i[..needed].to_vec(),
+                (seq_len, state_dim),
+                &self.device,
+            )?;
             (hr, hi)
         };
 
@@ -487,7 +585,12 @@ impl FlowStateModel {
         let y_gated = y_selu.mul(&gate)?;
 
         // ---- LayerNorm ----
-        let y_normed = layer_norm(&y_gated, &block.norm_weight, &block.norm_bias, self.config.eps)?;
+        let y_normed = layer_norm(
+            &y_gated,
+            &block.norm_weight,
+            &block.norm_bias,
+            self.config.eps,
+        )?;
 
         // ---- Residual ----
         Ok((y_normed + skip)?)
@@ -609,15 +712,25 @@ fn get_tensor_data_row_major(t: &Tensor, rows: usize, cols: usize) -> Vec<f32> {
 // ---------------------------------------------------------------------------
 
 /// Public wrapper for diagnostics.
-pub fn dump_legendre_basis(n_points: usize, degree: usize, range: [f32; 2],
-                           scale: f32, pred_dist: usize) -> Vec<Vec<f32>> {
+pub fn dump_legendre_basis(
+    n_points: usize,
+    degree: usize,
+    range: [f32; 2],
+    scale: f32,
+    pred_dist: usize,
+) -> Vec<Vec<f32>> {
     legendre_basis(n_points, degree, range, scale, pred_dist)
 }
 
 /// Compute Legendre polynomial basis matrix.
 /// Returns [n_points][degree+1] scaled by 1/4 (as in get_kernel).
-fn legendre_basis(n_points: usize, degree: usize, range: [f32; 2],
-                  scale: f32, pred_dist: usize) -> Vec<Vec<f32>> {
+fn legendre_basis(
+    n_points: usize,
+    degree: usize,
+    range: [f32; 2],
+    scale: f32,
+    pred_dist: usize,
+) -> Vec<Vec<f32>> {
     let dt = scale * (range[1] - range[0]) / pred_dist as f32;
     let t: Vec<f32> = (1..=n_points).map(|i| range[0] + i as f32 * dt).collect();
 
@@ -658,7 +771,7 @@ fn selu_tensor(x: &Tensor) -> anyhow::Result<Tensor> {
     const ALPHA: f64 = 1.6732632423543772848170429916717;
     const ALPHA_SCALE: f64 = SCALE * ALPHA;
     let pos = x.relu()?;
-    let neg = (x - &pos)?;            // min(x, 0)
+    let neg = (x - &pos)?; // min(x, 0)
     let selu_pos = (pos * SCALE)?;
     let selu_neg = ((neg.exp()? - 1.0)? * ALPHA_SCALE)?;
     Ok((selu_pos + selu_neg)?)
@@ -693,7 +806,10 @@ impl zsfm_core::Forecaster for FlowStateModel {
         _mask: &[Vec<bool>],
         horizon: usize,
     ) -> Result<zsfm_core::QuantileMatrix> {
-        anyhow::ensure!(context.len() == 1, "FlowStateModel only supports univariate forecasting (1 variate)");
+        anyhow::ensure!(
+            context.len() == 1,
+            "FlowStateModel only supports univariate forecasting (1 variate)"
+        );
         let qmat = FlowStateModel::forecast(self, &context[0], horizon)?; // [n_q][horizon]
         Ok(qmat.into_iter().map(|row| vec![row]).collect())
     }

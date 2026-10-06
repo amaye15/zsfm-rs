@@ -22,38 +22,38 @@ use crate::config::MoiraiConfig;
 
 // Chosen patch size for inference: 32 (index 2 in [8,16,32,64,128])
 const PATCH_SIZE: usize = 32;
-const PATCH_IDX: usize  = 2;
+const PATCH_IDX: usize = 2;
 
 // ---------------------------------------------------------------------------
 // Weight structs
 // ---------------------------------------------------------------------------
 
 struct EncoderBlock {
-    norm1_w:         Tensor,
-    norm2_w:         Tensor,
-    attn_qkv_w:      Tensor, // fused [3*d_model, d_model]
-    attn_o_w:        Tensor,
-    attn_qn_w:       Tensor, // Q per-head norm scale [head_dim]
-    attn_kn_w:       Tensor, // K per-head norm scale [head_dim]
-    vbias_obs: Tensor,   // [n_heads, 1, 1] — observed-key per-head bias
-    vbias_mask: Tensor,  // [n_heads, 1, 1] — masked-key per-head bias
-    ffn_fc1_w:       Tensor,
-    ffn_fc2_w:       Tensor,
-    ffn_gate_w:      Tensor,
+    norm1_w: Tensor,
+    norm2_w: Tensor,
+    attn_qkv_w: Tensor, // fused [3*d_model, d_model]
+    attn_o_w: Tensor,
+    attn_qn_w: Tensor,  // Q per-head norm scale [head_dim]
+    attn_kn_w: Tensor,  // K per-head norm scale [head_dim]
+    vbias_obs: Tensor,  // [n_heads, 1, 1] — observed-key per-head bias
+    vbias_mask: Tensor, // [n_heads, 1, 1] — masked-key per-head bias
+    ffn_fc1_w: Tensor,
+    ffn_fc2_w: Tensor,
+    ffn_gate_w: Tensor,
 }
 
 pub struct MoiraiModel {
     device: Device,
     config: MoiraiConfig,
-    in_proj_w:     Tensor, // [5, 1024, 128]
-    in_proj_b:     Tensor, // [5, 1024]
-    mask_embed:    Tensor, // [1, 1024]
-    blocks:        Vec<EncoderBlock>,
-    norm_f_w:      Tensor,
+    in_proj_w: Tensor,  // [5, 1024, 128]
+    in_proj_b: Tensor,  // [5, 1024]
+    mask_embed: Tensor, // [1, 1024]
+    blocks: Vec<EncoderBlock>,
+    norm_f_w: Tensor,
     head_st_loc_w: Tensor, // [5, 128, 1024]
     head_st_loc_b: Tensor, // [5, 128]
     rope_inv_freq: Vec<f32>,
-    rope_cache:    Mutex<HashMap<usize, (Tensor, Tensor)>>,
+    rope_cache: Mutex<HashMap<usize, (Tensor, Tensor)>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -77,8 +77,8 @@ impl MoiraiModel {
         let mut reader = BufReader::with_capacity(zsfm_gguf::READ_BUF_CAPACITY, file);
         let content = gguf_file::Content::read(&mut reader).context("parse GGUF header")?;
 
-        let in_proj_w  = load_t(&content, &mut reader, "in_proj.weight", &device)?;
-        let in_proj_b  = load_t(&content, &mut reader, "in_proj.bias", &device)?;
+        let in_proj_w = load_t(&content, &mut reader, "in_proj.weight", &device)?;
+        let in_proj_b = load_t(&content, &mut reader, "in_proj.bias", &device)?;
         let mask_embed = load_t(&content, &mut reader, "mask_embed.weight", &device)?;
 
         let mut blocks = Vec::with_capacity(config.n_layers);
@@ -87,28 +87,43 @@ impl MoiraiModel {
             let q_w = load_t(&content, &mut reader, &p("attn_q.weight"), &device)?;
             let k_w = load_t(&content, &mut reader, &p("attn_k.weight"), &device)?;
             let v_w = load_t(&content, &mut reader, &p("attn_v.weight"), &device)?;
-            let attn_qkv_w = Tensor::cat(&[&q_w, &k_w, &v_w], 0)
-                .with_context(|| format!("qkv cat blk.{n}"))?;
-            let norm1_w    = load_t(&content, &mut reader, &p("norm1.weight"), &device)?;
-            let norm2_w    = load_t(&content, &mut reader, &p("norm2.weight"), &device)?;
-            let attn_o_w   = load_t(&content, &mut reader, &p("attn_o.weight"), &device)?;
-            let attn_qn_w  = load_t(&content, &mut reader, &p("attn_qn.weight"), &device)?;
-            let attn_kn_w  = load_t(&content, &mut reader, &p("attn_kn.weight"), &device)?;
+            let attn_qkv_w =
+                Tensor::cat(&[&q_w, &k_w, &v_w], 0).with_context(|| format!("qkv cat blk.{n}"))?;
+            let norm1_w = load_t(&content, &mut reader, &p("norm1.weight"), &device)?;
+            let norm2_w = load_t(&content, &mut reader, &p("norm2.weight"), &device)?;
+            let attn_o_w = load_t(&content, &mut reader, &p("attn_o.weight"), &device)?;
+            let attn_qn_w = load_t(&content, &mut reader, &p("attn_qn.weight"), &device)?;
+            let attn_kn_w = load_t(&content, &mut reader, &p("attn_kn.weight"), &device)?;
             let vbias_raw = load_t(&content, &mut reader, &p("attn_vbias.weight"), &device)?
-                .flatten_all()?.to_vec1::<f32>()?;
+                .flatten_all()?
+                .to_vec1::<f32>()?;
             let n_heads = config.n_heads;
-            let vbias_obs  = Tensor::from_vec(vbias_raw[0..n_heads].to_vec(), (n_heads, 1, 1), &device)?;
-            let vbias_mask = Tensor::from_vec(vbias_raw[n_heads..2*n_heads].to_vec(), (n_heads, 1, 1), &device)?;
-            let ffn_fc1_w  = load_t(&content, &mut reader, &p("ffn_fc1.weight"), &device)?;
-            let ffn_fc2_w  = load_t(&content, &mut reader, &p("ffn_fc2.weight"), &device)?;
+            let vbias_obs =
+                Tensor::from_vec(vbias_raw[0..n_heads].to_vec(), (n_heads, 1, 1), &device)?;
+            let vbias_mask = Tensor::from_vec(
+                vbias_raw[n_heads..2 * n_heads].to_vec(),
+                (n_heads, 1, 1),
+                &device,
+            )?;
+            let ffn_fc1_w = load_t(&content, &mut reader, &p("ffn_fc1.weight"), &device)?;
+            let ffn_fc2_w = load_t(&content, &mut reader, &p("ffn_fc2.weight"), &device)?;
             let ffn_gate_w = load_t(&content, &mut reader, &p("ffn_gate.weight"), &device)?;
             blocks.push(EncoderBlock {
-                norm1_w, norm2_w, attn_qkv_w, attn_o_w, attn_qn_w, attn_kn_w,
-                vbias_obs, vbias_mask, ffn_fc1_w, ffn_fc2_w, ffn_gate_w,
+                norm1_w,
+                norm2_w,
+                attn_qkv_w,
+                attn_o_w,
+                attn_qn_w,
+                attn_kn_w,
+                vbias_obs,
+                vbias_mask,
+                ffn_fc1_w,
+                ffn_fc2_w,
+                ffn_gate_w,
             });
         }
 
-        let norm_f_w      = load_t(&content, &mut reader, "norm_f.weight", &device)?;
+        let norm_f_w = load_t(&content, &mut reader, "norm_f.weight", &device)?;
         let head_st_loc_w = load_t(&content, &mut reader, "head.st_loc.weight", &device)?;
         let head_st_loc_b = load_t(&content, &mut reader, "head.st_loc.bias", &device)?;
 
@@ -119,10 +134,15 @@ impl MoiraiModel {
             .collect();
 
         Ok(Self {
-            device, config,
-            in_proj_w, in_proj_b, mask_embed,
-            blocks, norm_f_w,
-            head_st_loc_w, head_st_loc_b,
+            device,
+            config,
+            in_proj_w,
+            in_proj_b,
+            mask_embed,
+            blocks,
+            norm_f_w,
+            head_st_loc_w,
+            head_st_loc_b,
             rope_inv_freq,
             rope_cache: Mutex::new(HashMap::new()),
         })
@@ -136,14 +156,14 @@ impl MoiraiModel {
     pub fn forecast(&self, context: &[f32], horizon: usize) -> Result<Vec<f32>> {
         let cfg = &self.config;
         let patch_size = PATCH_SIZE;
-        let patch_idx  = PATCH_IDX;
+        let patch_idx = PATCH_IDX;
 
         // Mean-scale normalization (Moirai's default scaling)
-        let loc   = context.iter().map(|&v| v as f64).sum::<f64>() / context.len() as f64;
-        let scale = context.iter().map(|&v| (v as f64 - loc).abs()).sum::<f64>()
-                    / context.len() as f64;
+        let loc = context.iter().map(|&v| v as f64).sum::<f64>() / context.len() as f64;
+        let scale =
+            context.iter().map(|&v| (v as f64 - loc).abs()).sum::<f64>() / context.len() as f64;
         let scale = (scale.max(1e-8)) as f32;
-        let loc   = loc as f32;
+        let loc = loc as f32;
 
         // Scale context and trim/pad to max_seq_len
         let max_ts = cfg.max_seq_len; // 512
@@ -171,8 +191,8 @@ impl MoiraiModel {
         // After dequantize candle gives us the tensor in its stored order
         // The Python shape [5, 1024, 128] → GGUF reversal → [128, 1024, 5]
         // We need to work with this carefully.
-        let d_model      = cfg.d_model;       // 1024
-        let max_ps       = cfg.max_patch_size; // 128
+        let d_model = cfg.d_model; // 1024
+        let max_ps = cfg.max_patch_size; // 128
 
         // Python in_proj.weight[patch_idx]: [d_model=1024, max_ps=128]
         // In GGUF (reversed dims): the tensor is stored as [max_ps=128, d_model=1024, 5_dim]?
@@ -181,7 +201,7 @@ impl MoiraiModel {
         let in_proj_w_3d = self.in_proj_w.reshape((5, d_model, max_ps))?;
         // Extract patch_idx slice: [d_model, max_ps]
         let proj_w_slice = in_proj_w_3d.get(patch_idx)?.contiguous()?; // [d_model, max_ps]
-        // Take only patch_size columns: [d_model, patch_size]
+                                                                       // Take only patch_size columns: [d_model, patch_size]
         let proj_w = proj_w_slice.narrow(1, 0, patch_size)?.contiguous()?;
 
         // Bias: in_proj_b[patch_idx] → [d_model=1024]
@@ -194,13 +214,10 @@ impl MoiraiModel {
             let src = &ctx_scaled[i * patch_size..(i + 1) * patch_size];
             patch_flat[i * patch_size..(i + 1) * patch_size].copy_from_slice(src);
         }
-        let ctx_patches_t = Tensor::from_vec(
-            patch_flat, (n_ctx_patches, patch_size), &self.device,
-        )?;
+        let ctx_patches_t =
+            Tensor::from_vec(patch_flat, (n_ctx_patches, patch_size), &self.device)?;
         // [n_ctx, patch_size] @ [patch_size, d_model] + [d_model] → [n_ctx, d_model]
-        let ctx_emb = ctx_patches_t
-            .matmul(&proj_w.t()?)?
-            .broadcast_add(&proj_b)?;
+        let ctx_emb = ctx_patches_t.matmul(&proj_w.t()?)?.broadcast_add(&proj_b)?;
 
         // Mask embeddings for future patches: tile mask_embed [n_fc, d_model]
         // mask_embed shape in GGUF: [1024, 1] (Python [1, 1024] → reversed)
@@ -228,11 +245,17 @@ impl MoiraiModel {
         // After reshape: [5, 128, 1024]
         let loc_w_3d = self.head_st_loc_w.reshape((5, max_ps, d_model))?;
         let loc_b_2d = self.head_st_loc_b.reshape((5, max_ps))?;
-        let loc_w = loc_w_3d.get(patch_idx)?.narrow(0, 0, patch_size)?.contiguous()?; // [patch_size, d_model]
-        let loc_b = loc_b_2d.get(patch_idx)?.narrow(0, 0, patch_size)?.contiguous()?; // [patch_size]
+        let loc_w = loc_w_3d
+            .get(patch_idx)?
+            .narrow(0, 0, patch_size)?
+            .contiguous()?; // [patch_size, d_model]
+        let loc_b = loc_b_2d
+            .get(patch_idx)?
+            .narrow(0, 0, patch_size)?
+            .contiguous()?; // [patch_size]
 
         let future_h = h.narrow(0, n_ctx_patches, n_fc_patches)?; // [n_fc, d_model]
-        // [n_fc, d_model] @ [d_model, patch_size] + [patch_size] → [n_fc, patch_size]
+                                                                  // [n_fc, d_model] @ [d_model, patch_size] + [patch_size] → [n_fc, patch_size]
         let pred = future_h.matmul(&loc_w.t()?)?.broadcast_add(&loc_b)?;
 
         let pred_flat: Vec<f32> = pred.flatten_all()?.to_vec1()?;
@@ -271,9 +294,9 @@ impl MoiraiModel {
         seq_len: usize,
     ) -> Result<Tensor> {
         let cfg = &self.config;
-        let n_heads  = cfg.n_heads;
+        let n_heads = cfg.n_heads;
         let head_dim = cfg.head_dim;
-        let d_model  = cfg.d_model;
+        let d_model = cfg.d_model;
 
         let qkv = zsfm_nn::linear_nobias(hidden, &blk.attn_qkv_w)?;
         let q = qkv.narrow(D::Minus1, 0, d_model)?;
@@ -294,7 +317,10 @@ impl MoiraiModel {
 
         // Apply RoPE for positional encoding (cached by seq_len)
         let (cos_t, sin_t) = {
-            let mut cache = self.rope_cache.lock().unwrap();
+            let mut cache = self
+                .rope_cache
+                .lock()
+                .map_err(|_| anyhow::anyhow!("cache mutex poisoned"))?;
             if !cache.contains_key(&seq_len) {
                 let half = self.rope_inv_freq.len();
                 let mut cos_v = vec![0.0f32; seq_len * half];
@@ -307,8 +333,10 @@ impl MoiraiModel {
                     }
                 }
                 let half_dim = self.rope_inv_freq.len();
-                let cos_t = Tensor::from_vec(cos_v, (seq_len, half_dim), &self.device)?.unsqueeze(0)?;
-                let sin_t = Tensor::from_vec(sin_v, (seq_len, half_dim), &self.device)?.unsqueeze(0)?;
+                let cos_t =
+                    Tensor::from_vec(cos_v, (seq_len, half_dim), &self.device)?.unsqueeze(0)?;
+                let sin_t =
+                    Tensor::from_vec(sin_v, (seq_len, half_dim), &self.device)?.unsqueeze(0)?;
                 cache.insert(seq_len, (cos_t, sin_t));
             }
             let (c, s) = &cache[&seq_len];
@@ -317,18 +345,31 @@ impl MoiraiModel {
 
         let q = apply_rope_with_tables(&q, &cos_t, &sin_t, head_dim)?;
         let k = apply_rope_with_tables(&k, &cos_t, &sin_t, head_dim)?;
-        let v = v.reshape((seq_len, n_heads, head_dim))?.permute((1, 0, 2))?.contiguous()?;
+        let v = v
+            .reshape((seq_len, n_heads, head_dim))?
+            .permute((1, 0, 2))?
+            .contiguous()?;
 
         let scale = (head_dim as f64).sqrt();
-        let scores = q.matmul(&k.permute((0, 2, 1))?)?;  // [n_heads, seq, seq]
+        let scores = q.matmul(&k.permute((0, 2, 1))?)?; // [n_heads, seq, seq]
         let scores = (scores / scale)?;
 
         // Add variate attention bias using precomputed vbias data
-        let scores = apply_var_attn_bias(&scores, is_masked, seq_len, &blk.vbias_obs, &blk.vbias_mask, &self.device)?;
+        let scores = apply_var_attn_bias(
+            &scores,
+            is_masked,
+            seq_len,
+            &blk.vbias_obs,
+            &blk.vbias_mask,
+            &self.device,
+        )?;
 
         let attn = candle_nn::ops::softmax_last_dim(&scores)?;
         let out = attn.matmul(&v)?; // [n_heads, seq, head_dim]
-        let out = out.permute((1, 0, 2))?.contiguous()?.reshape((seq_len, d_model))?;
+        let out = out
+            .permute((1, 0, 2))?
+            .contiguous()?
+            .reshape((seq_len, d_model))?;
 
         zsfm_nn::linear_nobias(&out, &blk.attn_o_w)
     }
@@ -360,8 +401,8 @@ fn apply_var_attn_bias(
     scores: &Tensor,
     is_masked: &[u8],
     seq_len: usize,
-    vbias_obs: &Tensor,   // [n_heads, 1, 1]
-    vbias_mask: &Tensor,  // [n_heads, 1, 1]
+    vbias_obs: &Tensor,  // [n_heads, 1, 1]
+    vbias_mask: &Tensor, // [n_heads, 1, 1]
     device: &Device,
 ) -> Result<Tensor> {
     let mask_f: Vec<f32> = is_masked.iter().map(|&m| m as f32).collect();
@@ -409,13 +450,17 @@ impl zsfm_core::Forecaster for MoiraiModel {
         _mask: &[Vec<bool>],
         horizon: usize,
     ) -> Result<zsfm_core::QuantileMatrix> {
-        anyhow::ensure!(!context.is_empty(), "context must have at least one variate");
+        anyhow::ensure!(
+            !context.is_empty(),
+            "context must have at least one variate"
+        );
         let variates: Vec<Vec<f32>> = context
             .par_iter()
             .enumerate()
             .map(|(vi, ctx)| -> Result<Vec<f32>> {
                 anyhow::ensure!(!ctx.is_empty(), "variate {vi} context must not be empty");
-                MoiraiModel::forecast(self, ctx, horizon).with_context(|| format!("forecast variate {vi}"))
+                MoiraiModel::forecast(self, ctx, horizon)
+                    .with_context(|| format!("forecast variate {vi}"))
             })
             .collect::<Result<Vec<_>>>()?;
         Ok(vec![variates])

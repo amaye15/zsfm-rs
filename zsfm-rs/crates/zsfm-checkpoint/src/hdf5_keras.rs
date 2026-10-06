@@ -19,16 +19,32 @@ use crate::cast::{f32_to_bytes, SrcDtype};
 use crate::read::{Checkpoint, RawTensor};
 
 pub fn load_hdf5(path: &Path) -> Result<Checkpoint> {
-    let file = hdf5::File::open(path)
-        .with_context(|| format!("open HDF5 file {}", path.display()))?;
+    const MAX_HDF5_BYTES: u64 = 8 << 30;
+    const MAX_DATASETS: usize = 100_000;
+    let meta = std::fs::metadata(path).with_context(|| format!("stat {}", path.display()))?;
+    anyhow::ensure!(
+        meta.len() <= MAX_HDF5_BYTES,
+        "HDF5 file too large: {} bytes (max {MAX_HDF5_BYTES})",
+        meta.len()
+    );
+    let file =
+        hdf5::File::open(path).with_context(|| format!("open HDF5 file {}", path.display()))?;
     let mut tensors = Vec::new();
     walk_group(&file, &mut tensors)?;
+    anyhow::ensure!(
+        tensors.len() <= MAX_DATASETS,
+        "HDF5 has too many datasets: {} (max {MAX_DATASETS})",
+        tensors.len()
+    );
     anyhow::ensure!(
         !tensors.is_empty(),
         "no numeric datasets found in {}",
         path.display()
     );
-    Ok(Checkpoint { tensors, metadata: Vec::new() })
+    Ok(Checkpoint {
+        tensors,
+        metadata: Vec::new(),
+    })
 }
 
 fn walk_group(group: &hdf5::Group, out: &mut Vec<RawTensor>) -> Result<()> {
@@ -63,7 +79,9 @@ fn dataset_to_raw(ds: &hdf5::Dataset) -> Result<Option<RawTensor>> {
             let vals = ds.read_raw::<half::f16>()?;
             (
                 SrcDtype::F16,
-                vals.iter().flat_map(|v| v.to_bits().to_le_bytes()).collect(),
+                vals.iter()
+                    .flat_map(|v| v.to_bits().to_le_bytes())
+                    .collect(),
             )
         }
         TypeDescriptor::Float(FloatSize::U8) => {
@@ -122,7 +140,12 @@ fn dataset_to_raw(ds: &hdf5::Dataset) -> Result<Option<RawTensor>> {
         }
     };
 
-    Ok(Some(RawTensor { name, shape, dtype, data }))
+    Ok(Some(RawTensor {
+        name,
+        shape,
+        dtype,
+        data,
+    }))
 }
 
 // ---------------------------------------------------------------------------

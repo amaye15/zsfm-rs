@@ -66,9 +66,18 @@ mod tests {
 
     #[test]
     fn top_level() {
-        assert_eq!(map_tensor_name("final_layer.weight"), Some("head.weight".into()));
-        assert_eq!(map_tensor_name("x_embedding.x_embedding.bias"), Some("x_embed.bias".into()));
-        assert_eq!(map_tensor_name("y_embedding.y_mask.weight"), Some("y_mask.weight".into()));
+        assert_eq!(
+            map_tensor_name("final_layer.weight"),
+            Some("head.weight".into())
+        );
+        assert_eq!(
+            map_tensor_name("x_embedding.x_embedding.bias"),
+            Some("x_embed.bias".into())
+        );
+        assert_eq!(
+            map_tensor_name("y_embedding.y_mask.weight"),
+            Some("y_mask.weight".into())
+        );
     }
 
     #[test]
@@ -81,7 +90,10 @@ mod tests {
             map_tensor_name("layers.11.attention2.o.bias"),
             Some("blk.11.attn_feat.o.bias".into())
         );
-        assert_eq!(map_tensor_name("layers.3.linear4.weight"), Some("blk.3.mlp2_fc2.weight".into()));
+        assert_eq!(
+            map_tensor_name("layers.3.linear4.weight"),
+            Some("blk.3.mlp2_fc2.weight".into())
+        );
     }
 
     #[test]

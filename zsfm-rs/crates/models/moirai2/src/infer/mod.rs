@@ -5,9 +5,9 @@
 //! PackedStdScaler normalization, and multi-token (4 patches/token) decoding loop.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
 use std::io::{BufReader, Read, Seek};
 use std::path::Path;
+use std::sync::Mutex;
 
 use anyhow::{Context, Result};
 use candle_core::quantized::gguf_file;
@@ -24,36 +24,36 @@ use rope::apply_partial_rope;
 // ---------------------------------------------------------------------------
 
 struct ResidualBlockW {
-    hidden_w:   Tensor, // Python [hidden_dim, in_dim]
-    hidden_b:   Tensor, // [hidden_dim]
-    output_w:   Tensor, // Python [out_dim, hidden_dim]
-    output_b:   Tensor, // [out_dim]
+    hidden_w: Tensor,   // Python [hidden_dim, in_dim]
+    hidden_b: Tensor,   // [hidden_dim]
+    output_w: Tensor,   // Python [out_dim, hidden_dim]
+    output_b: Tensor,   // [out_dim]
     residual_w: Tensor, // Python [out_dim, in_dim]
     residual_b: Tensor, // [out_dim]
 }
 
 struct EncoderBlock {
-    norm1_w:         Tensor, // [d_model]
-    norm2_w:         Tensor,
-    attn_qkv_w:      Tensor, // fused [3*d_model, d_model]
-    attn_o_w:        Tensor,
-    attn_qn_w:       Tensor, // [head_dim]  per-head QK norm (shared across heads)
-    attn_kn_w:       Tensor,
-    attn_vbias_t: Tensor,      // [n_heads, 1, 1] same-variate bias, precomputed at load
-    ffn_fc1_w:       Tensor, // [d_ff, d_model]
-    ffn_fc2_w:       Tensor, // [d_model, d_ff]
-    ffn_gate_w:      Tensor, // [d_ff, d_model]
+    norm1_w: Tensor, // [d_model]
+    norm2_w: Tensor,
+    attn_qkv_w: Tensor, // fused [3*d_model, d_model]
+    attn_o_w: Tensor,
+    attn_qn_w: Tensor, // [head_dim]  per-head QK norm (shared across heads)
+    attn_kn_w: Tensor,
+    attn_vbias_t: Tensor, // [n_heads, 1, 1] same-variate bias, precomputed at load
+    ffn_fc1_w: Tensor,    // [d_ff, d_model]
+    ffn_fc2_w: Tensor,    // [d_model, d_ff]
+    ffn_gate_w: Tensor,   // [d_ff, d_model]
 }
 
 pub struct Moirai2Model {
-    device:   Device,
-    config:   Moirai2Config,
-    in_proj:  ResidualBlockW,
-    blocks:   Vec<EncoderBlock>,
+    device: Device,
+    config: Moirai2Config,
+    in_proj: ResidualBlockW,
+    blocks: Vec<EncoderBlock>,
     norm_f_w: Tensor,
     out_proj: ResidualBlockW,
-    rope_cos: Vec<f32>,  // [max_pos * half_rope] precomputed cosines
-    rope_sin: Vec<f32>,  // [max_pos * half_rope] precomputed sines
+    rope_cos: Vec<f32>, // [max_pos * half_rope] precomputed cosines
+    rope_sin: Vec<f32>, // [max_pos * half_rope] precomputed sines
     causal_mask_cache: Mutex<HashMap<usize, Tensor>>,
 }
 
@@ -78,10 +78,10 @@ fn load_residual_block(
 ) -> Result<ResidualBlockW> {
     let p = |s: &str| format!("{prefix}.{s}");
     Ok(ResidualBlockW {
-        hidden_w:   load_t(content, reader, &p("hidden.weight"), device)?,
-        hidden_b:   load_t(content, reader, &p("hidden.bias"), device)?,
-        output_w:   load_t(content, reader, &p("output.weight"), device)?,
-        output_b:   load_t(content, reader, &p("output.bias"), device)?,
+        hidden_w: load_t(content, reader, &p("hidden.weight"), device)?,
+        hidden_b: load_t(content, reader, &p("hidden.bias"), device)?,
+        output_w: load_t(content, reader, &p("output.weight"), device)?,
+        output_b: load_t(content, reader, &p("output.bias"), device)?,
         residual_w: load_t(content, reader, &p("residual.weight"), device)?,
         residual_b: load_t(content, reader, &p("residual.bias"), device)?,
     })
@@ -103,24 +103,33 @@ impl Moirai2Model {
             let q_w = load_t(&content, &mut reader, &p("attn_q.weight"), &device)?;
             let k_w = load_t(&content, &mut reader, &p("attn_k.weight"), &device)?;
             let v_w = load_t(&content, &mut reader, &p("attn_v.weight"), &device)?;
-            let attn_qkv_w = Tensor::cat(&[&q_w, &k_w, &v_w], 0)
-                .with_context(|| format!("qkv cat blk.{n}"))?;
-            let norm1_w    = load_t(&content, &mut reader, &p("norm1.weight"), &device)?;
-            let norm2_w    = load_t(&content, &mut reader, &p("norm2.weight"), &device)?;
-            let attn_o_w   = load_t(&content, &mut reader, &p("attn_o.weight"), &device)?;
-            let attn_qn_w  = load_t(&content, &mut reader, &p("attn_qn.weight"), &device)?;
-            let attn_kn_w  = load_t(&content, &mut reader, &p("attn_kn.weight"), &device)?;
+            let attn_qkv_w =
+                Tensor::cat(&[&q_w, &k_w, &v_w], 0).with_context(|| format!("qkv cat blk.{n}"))?;
+            let norm1_w = load_t(&content, &mut reader, &p("norm1.weight"), &device)?;
+            let norm2_w = load_t(&content, &mut reader, &p("norm2.weight"), &device)?;
+            let attn_o_w = load_t(&content, &mut reader, &p("attn_o.weight"), &device)?;
+            let attn_qn_w = load_t(&content, &mut reader, &p("attn_qn.weight"), &device)?;
+            let attn_kn_w = load_t(&content, &mut reader, &p("attn_kn.weight"), &device)?;
             let vbias_raw = load_t(&content, &mut reader, &p("attn_vbias.weight"), &device)?
-                .flatten_all()?.to_vec1::<f32>()?;
+                .flatten_all()?
+                .to_vec1::<f32>()?;
             let n_heads = config.n_heads;
             let same_var_bias: Vec<f32> = (0..n_heads).map(|h| vbias_raw[n_heads + h]).collect();
             let attn_vbias_t = Tensor::from_vec(same_var_bias, (n_heads, 1, 1), &device)?;
-            let ffn_fc1_w  = load_t(&content, &mut reader, &p("ffn_fc1.weight"), &device)?;
-            let ffn_fc2_w  = load_t(&content, &mut reader, &p("ffn_fc2.weight"), &device)?;
+            let ffn_fc1_w = load_t(&content, &mut reader, &p("ffn_fc1.weight"), &device)?;
+            let ffn_fc2_w = load_t(&content, &mut reader, &p("ffn_fc2.weight"), &device)?;
             let ffn_gate_w = load_t(&content, &mut reader, &p("ffn_gate.weight"), &device)?;
             blocks.push(EncoderBlock {
-                norm1_w, norm2_w, attn_qkv_w, attn_o_w, attn_qn_w, attn_kn_w,
-                attn_vbias_t, ffn_fc1_w, ffn_fc2_w, ffn_gate_w,
+                norm1_w,
+                norm2_w,
+                attn_qkv_w,
+                attn_o_w,
+                attn_qn_w,
+                attn_kn_w,
+                attn_vbias_t,
+                ffn_fc1_w,
+                ffn_fc2_w,
+                ffn_gate_w,
             });
         }
 
@@ -142,8 +151,17 @@ impl Moirai2Model {
             }
         }
 
-        Ok(Self { device, config, in_proj, blocks, norm_f_w, out_proj,
-                  rope_cos, rope_sin, causal_mask_cache: Mutex::new(HashMap::new()) })
+        Ok(Self {
+            device,
+            config,
+            in_proj,
+            blocks,
+            norm_f_w,
+            out_proj,
+            rope_cos,
+            rope_sin,
+            causal_mask_cache: Mutex::new(HashMap::new()),
+        })
     }
 
     // -----------------------------------------------------------------------
@@ -163,10 +181,13 @@ impl Moirai2Model {
         };
         let n = ctx.len() as f64;
         let loc_f64 = ctx.iter().map(|&v| v as f64).sum::<f64>() / n;
-        let var = ctx.iter().map(|&v| (v as f64 - loc_f64).powi(2)).sum::<f64>()
+        let var = ctx
+            .iter()
+            .map(|&v| (v as f64 - loc_f64).powi(2))
+            .sum::<f64>()
             / (n - 1.0).max(1.0);
         let scale = ((var + 1e-5_f64).sqrt()) as f32;
-        let loc   = loc_f64 as f32;
+        let loc = loc_f64 as f32;
 
         // --- Normalize and left-pad to multiple of patch_size ---
         let ctx_norm: Vec<f32> = ctx.iter().map(|&v| (v - loc) / scale).collect();
@@ -190,8 +211,8 @@ impl Moirai2Model {
         let ctx_time_ids: Vec<usize> = (0..n_ctx).collect();
 
         let num_pt = cfg.num_predict_token; // 4
-        let num_q  = cfg.num_quantiles;     // 9
-        let mq     = cfg.median_quantile;   // 4
+        let num_q = cfg.num_quantiles; // 9
+        let mq = cfg.median_quantile; // 4
         let n_future_patches = (horizon + ps - 1) / ps;
 
         // --- Prefill: run context through transformer, collect KV cache ---
@@ -200,9 +221,11 @@ impl Moirai2Model {
         let (h_enc, mut kv_cache) = self.prefill_encoder(h_ctx, &ctx_time_ids, n_ctx)?;
 
         // Apply norm_f + out_proj to last context token only
-        let last_h_norm = zsfm_nn::rms_norm(&h_enc.narrow(0, n_ctx - 1, 1)?, Some(&self.norm_f_w), 1e-6)?;
+        let last_h_norm =
+            zsfm_nn::rms_norm(&h_enc.narrow(0, n_ctx - 1, 1)?, Some(&self.norm_f_w), 1e-6)?;
         let first_pred: Vec<f32> = residual_block_fwd(&last_h_norm, &self.out_proj)?
-            .flatten_all()?.to_vec1()?;
+            .flatten_all()?
+            .to_vec1()?;
 
         let mut collected_patches: Vec<Vec<f32>> = Vec::new();
         let mut prev_patches: Vec<Vec<f32>> = (0..num_pt)
@@ -220,7 +243,8 @@ impl Moirai2Model {
         let mut cached_len = n_ctx;
         while collected_patches.len() < n_future_patches {
             let new_time_ids: Vec<usize> = (cached_len..cached_len + num_pt).collect();
-            let new_flat: Vec<f32> = prev_patches.iter()
+            let new_flat: Vec<f32> = prev_patches
+                .iter()
                 .flat_map(|patch| {
                     let mut tok = patch.clone();
                     tok.extend(vec![0.0f32; ps]);
@@ -231,9 +255,11 @@ impl Moirai2Model {
             let h_in = residual_block_fwd(&new_t, &self.in_proj)?;
             let h_dec = self.decode_encoder(h_in, &new_time_ids, &mut kv_cache, cached_len)?;
 
-            let last_h_norm = zsfm_nn::rms_norm(&h_dec.narrow(0, num_pt - 1, 1)?, Some(&self.norm_f_w), 1e-6)?;
+            let last_h_norm =
+                zsfm_nn::rms_norm(&h_dec.narrow(0, num_pt - 1, 1)?, Some(&self.norm_f_w), 1e-6)?;
             let pred: Vec<f32> = residual_block_fwd(&last_h_norm, &self.out_proj)?
-                .flatten_all()?.to_vec1()?;
+                .flatten_all()?
+                .to_vec1()?;
 
             let new_patches: Vec<Vec<f32>> = (0..num_pt)
                 .map(|pt| {
@@ -292,7 +318,8 @@ impl Moirai2Model {
         let (attn_out, k, v) = self.prefill_attn(&h_norm, blk, time_ids, seq_len)?;
         let h = (h + attn_out)?;
         let h_norm2 = zsfm_nn::rms_norm(&h, Some(&blk.norm2_w), 1e-6)?;
-        let ffn_out = zsfm_nn::swiglu_ffn(&h_norm2, &blk.ffn_fc1_w, &blk.ffn_fc2_w, &blk.ffn_gate_w)?;
+        let ffn_out =
+            zsfm_nn::swiglu_ffn(&h_norm2, &blk.ffn_fc1_w, &blk.ffn_fc2_w, &blk.ffn_gate_w)?;
         Ok(((h + ffn_out)?, k, v))
     }
 
@@ -304,9 +331,9 @@ impl Moirai2Model {
         seq_len: usize,
     ) -> Result<(Tensor, Tensor, Tensor)> {
         let cfg = &self.config;
-        let n_heads  = cfg.n_heads;
+        let n_heads = cfg.n_heads;
         let head_dim = cfg.head_dim;
-        let d_model  = cfg.d_model;
+        let d_model = cfg.d_model;
         let rope_dim = cfg.rope_dim;
 
         let qkv = zsfm_nn::linear_nobias(h, &blk.attn_qkv_w)?;
@@ -321,18 +348,45 @@ impl Moirai2Model {
 
         let q = q.permute((1, 0, 2))?.contiguous()?;
         let k = k.permute((1, 0, 2))?.contiguous()?;
-        let v = v.reshape((seq_len, n_heads, head_dim))?.permute((1, 0, 2))?.contiguous()?;
+        let v = v
+            .reshape((seq_len, n_heads, head_dim))?
+            .permute((1, 0, 2))?
+            .contiguous()?;
 
-        let q = apply_partial_rope(&q, time_ids, n_heads, head_dim, rope_dim, &self.device, &self.rope_cos, &self.rope_sin)?;
-        let k = apply_partial_rope(&k, time_ids, n_heads, head_dim, rope_dim, &self.device, &self.rope_cos, &self.rope_sin)?;
+        let q = apply_partial_rope(
+            &q,
+            time_ids,
+            n_heads,
+            head_dim,
+            rope_dim,
+            &self.device,
+            &self.rope_cos,
+            &self.rope_sin,
+        )?;
+        let k = apply_partial_rope(
+            &k,
+            time_ids,
+            n_heads,
+            head_dim,
+            rope_dim,
+            &self.device,
+            &self.rope_cos,
+            &self.rope_sin,
+        )?;
 
         let scale = (head_dim as f64).sqrt();
         let scores = q.matmul(&k.permute((0, 2, 1))?)?;
         let scores = (scores / scale)?;
         let causal = {
-            let mut cache = self.causal_mask_cache.lock().unwrap();
+            let mut cache = self
+                .causal_mask_cache
+                .lock()
+                .map_err(|_| anyhow::anyhow!("cache mutex poisoned"))?;
             if !cache.contains_key(&seq_len) {
-                cache.insert(seq_len, make_causal_mask_tensor(seq_len, n_heads, &self.device)?);
+                cache.insert(
+                    seq_len,
+                    make_causal_mask_tensor(seq_len, n_heads, &self.device)?,
+                );
             }
             cache[&seq_len].clone()
         };
@@ -341,7 +395,10 @@ impl Moirai2Model {
 
         let attn = candle_nn::ops::softmax_last_dim(&scores)?;
         let out = attn.matmul(&v)?;
-        let out = out.permute((1, 0, 2))?.contiguous()?.reshape((seq_len, d_model))?;
+        let out = out
+            .permute((1, 0, 2))?
+            .contiguous()?
+            .reshape((seq_len, d_model))?;
         Ok((zsfm_nn::linear_nobias(&out, &blk.attn_o_w)?, k, v))
     }
 
@@ -382,7 +439,8 @@ impl Moirai2Model {
             self.decode_attn_kv(&h_norm, blk, cache, new_time_ids, new_len, cached_len)?;
         let h = (h + attn_out)?;
         let h_norm2 = zsfm_nn::rms_norm(&h, Some(&blk.norm2_w), 1e-6)?;
-        let ffn_out = zsfm_nn::swiglu_ffn(&h_norm2, &blk.ffn_fc1_w, &blk.ffn_fc2_w, &blk.ffn_gate_w)?;
+        let ffn_out =
+            zsfm_nn::swiglu_ffn(&h_norm2, &blk.ffn_fc1_w, &blk.ffn_fc2_w, &blk.ffn_gate_w)?;
         Ok(((h + ffn_out)?, k_new, v_new))
     }
 
@@ -396,9 +454,9 @@ impl Moirai2Model {
         cached_len: usize,
     ) -> Result<(Tensor, Tensor, Tensor)> {
         let cfg = &self.config;
-        let n_heads  = cfg.n_heads;
+        let n_heads = cfg.n_heads;
         let head_dim = cfg.head_dim;
-        let d_model  = cfg.d_model;
+        let d_model = cfg.d_model;
         let rope_dim = cfg.rope_dim;
 
         let qkv = zsfm_nn::linear_nobias(h, &blk.attn_qkv_w)?;
@@ -413,10 +471,31 @@ impl Moirai2Model {
 
         let q = q.permute((1, 0, 2))?.contiguous()?;
         let k = k.permute((1, 0, 2))?.contiguous()?;
-        let v = v.reshape((new_len, n_heads, head_dim))?.permute((1, 0, 2))?.contiguous()?;
+        let v = v
+            .reshape((new_len, n_heads, head_dim))?
+            .permute((1, 0, 2))?
+            .contiguous()?;
 
-        let q = apply_partial_rope(&q, new_time_ids, n_heads, head_dim, rope_dim, &self.device, &self.rope_cos, &self.rope_sin)?;
-        let k = apply_partial_rope(&k, new_time_ids, n_heads, head_dim, rope_dim, &self.device, &self.rope_cos, &self.rope_sin)?;
+        let q = apply_partial_rope(
+            &q,
+            new_time_ids,
+            n_heads,
+            head_dim,
+            rope_dim,
+            &self.device,
+            &self.rope_cos,
+            &self.rope_sin,
+        )?;
+        let k = apply_partial_rope(
+            &k,
+            new_time_ids,
+            n_heads,
+            head_dim,
+            rope_dim,
+            &self.device,
+            &self.rope_cos,
+            &self.rope_sin,
+        )?;
 
         // Extend cache: [n_heads, cached+new_len, head_dim].
         // Return k_full/v_full so the caller can store them directly without a second cat.
@@ -431,7 +510,10 @@ impl Moirai2Model {
 
         let attn = candle_nn::ops::softmax_last_dim(&scores)?;
         let out = attn.matmul(&v_full)?; // [n_heads, new_len, head_dim]
-        let out = out.permute((1, 0, 2))?.contiguous()?.reshape((new_len, d_model))?;
+        let out = out
+            .permute((1, 0, 2))?
+            .contiguous()?
+            .reshape((new_len, d_model))?;
         Ok((zsfm_nn::linear_nobias(&out, &blk.attn_o_w)?, k_full, v_full))
     }
 }
@@ -441,8 +523,8 @@ impl Moirai2Model {
 // ---------------------------------------------------------------------------
 
 fn residual_block_fwd(x: &Tensor, w: &ResidualBlockW) -> Result<Tensor> {
-    let hidden   = zsfm_nn::linear_bias(x, &w.hidden_w, &w.hidden_b)?.silu()?;
-    let output   = zsfm_nn::linear_bias(&hidden, &w.output_w, &w.output_b)?;
+    let hidden = zsfm_nn::linear_bias(x, &w.hidden_w, &w.hidden_b)?.silu()?;
+    let output = zsfm_nn::linear_bias(&hidden, &w.output_w, &w.output_b)?;
     let residual = zsfm_nn::linear_bias(x, &w.residual_w, &w.residual_b)?;
     Ok((output + residual)?)
 }
@@ -455,7 +537,7 @@ fn qk_norm_heads(
     head_dim: usize,
 ) -> Result<Tensor> {
     let x_flat = x.reshape((seq_len * n_heads, head_dim))?;
-    let normed  = zsfm_nn::rms_norm(&x_flat, Some(weight), 1e-6)?;
+    let normed = zsfm_nn::rms_norm(&x_flat, Some(weight), 1e-6)?;
     Ok(normed.reshape((seq_len, n_heads, head_dim))?)
 }
 
@@ -512,13 +594,17 @@ impl zsfm_core::Forecaster for Moirai2Model {
         _mask: &[Vec<bool>],
         horizon: usize,
     ) -> Result<zsfm_core::QuantileMatrix> {
-        anyhow::ensure!(!context.is_empty(), "context must have at least one variate");
+        anyhow::ensure!(
+            !context.is_empty(),
+            "context must have at least one variate"
+        );
         let variates: Vec<Vec<f32>> = context
             .par_iter()
             .enumerate()
             .map(|(vi, ctx)| -> Result<Vec<f32>> {
                 anyhow::ensure!(!ctx.is_empty(), "variate {vi} context must not be empty");
-                Moirai2Model::forecast(self, ctx, horizon).with_context(|| format!("forecast variate {vi}"))
+                Moirai2Model::forecast(self, ctx, horizon)
+                    .with_context(|| format!("forecast variate {vi}"))
             })
             .collect::<Result<Vec<_>>>()?;
         Ok(vec![variates])

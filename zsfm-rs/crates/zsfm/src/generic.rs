@@ -21,15 +21,20 @@ use zsfm_checkpoint::{cast, load_checkpoint, LoadOptions};
 use zsfm_gguf::{GGMLType, GGUFMetaValue, GGUFWriter};
 
 #[derive(Clone, ValueEnum)]
-pub enum DtypeArg { F32, F16, Bf16, Q8 }
+pub enum DtypeArg {
+    F32,
+    F16,
+    Bf16,
+    Q8,
+}
 
 impl From<DtypeArg> for GGMLType {
     fn from(d: DtypeArg) -> Self {
         match d {
-            DtypeArg::F32  => GGMLType::F32,
-            DtypeArg::F16  => GGMLType::F16,
+            DtypeArg::F32 => GGMLType::F32,
+            DtypeArg::F16 => GGMLType::F16,
             DtypeArg::Bf16 => GGMLType::BF16,
-            DtypeArg::Q8   => GGMLType::Q8_0,
+            DtypeArg::Q8 => GGMLType::Q8_0,
         }
     }
 }
@@ -190,7 +195,11 @@ pub async fn run_convert(args: ConvertArgs) -> anyhow::Result<()> {
     };
     if args.arch.is_some() || !meta.iter().any(|(k, _)| k == "general.architecture") {
         let arch = args.arch.clone().unwrap_or_else(|| "unknown".to_string());
-        set(&mut meta, "general.architecture", GGUFMetaValue::String(arch));
+        set(
+            &mut meta,
+            "general.architecture",
+            GGUFMetaValue::String(arch),
+        );
     }
     if args.name.is_some() || !meta.iter().any(|(k, _)| k == "general.name") {
         let name = args.name.clone().unwrap_or(default_name);
@@ -209,17 +218,10 @@ pub async fn run_convert(args: ConvertArgs) -> anyhow::Result<()> {
     let out_dtype: GGMLType = args.dtype.into();
     let mut fallback_count = 0usize;
     for t in &ckpt.tensors {
-        let n_elems: u64 = t.shape.iter().product();
-        let innermost = t.shape.last().copied().unwrap_or(1);
-
-        let dst = if out_dtype == GGMLType::Q8_0 && (innermost % 32 != 0 || n_elems % 32 != 0) {
-            fallback_count += 1;
-            GGMLType::F32
-        } else {
-            out_dtype
-        };
-        let data = cast::cast_data(&t.data, t.dtype, dst)
-            .with_context(|| format!("tensor {}: cast failed", t.name))?;
+        let (data, dst, fell_back) =
+            cast::cast_with_q8_fallback(&t.data, t.dtype, &t.shape, out_dtype)
+                .with_context(|| format!("tensor {}: cast failed", t.name))?;
+        fallback_count += fell_back as usize;
         let gguf_shape: Vec<u64> = t.shape.iter().rev().copied().collect();
         writer.add_tensor(t.name.clone(), gguf_shape, dst, data);
     }
@@ -232,9 +234,13 @@ pub async fn run_convert(args: ConvertArgs) -> anyhow::Result<()> {
             std::fs::create_dir_all(parent)?;
         }
     }
-    println!("Writing {} tensors to {} …", ckpt.tensors.len(), args.output.display());
-    let out_file = File::create(&args.output)
-        .with_context(|| format!("create {}", args.output.display()))?;
+    println!(
+        "Writing {} tensors to {} …",
+        ckpt.tensors.len(),
+        args.output.display()
+    );
+    let out_file =
+        File::create(&args.output).with_context(|| format!("create {}", args.output.display()))?;
     writer.write_to(&mut BufWriter::new(out_file))?;
     println!("Done.");
     Ok(())
@@ -339,7 +345,12 @@ pub fn run_inspect(args: InspectArgs) -> anyhow::Result<()> {
                         let vals = gguf.tensor_f32(&mut file, info)?;
                         let shown: Vec<String> =
                             vals.iter().take(n).map(|v| v.to_string()).collect();
-                        println!("  {} values[..{}]: [{}]", info.name, shown.len(), shown.join(", "));
+                        println!(
+                            "  {} values[..{}]: [{}]",
+                            info.name,
+                            shown.len(),
+                            shown.join(", ")
+                        );
                     }
                 }
                 return Ok(());
@@ -383,7 +394,10 @@ pub fn run_inspect(args: InspectArgs) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let opts = LoadOptions { pickle_key: args.pickle_key.clone(), strip_prefix: None };
+    let opts = LoadOptions {
+        pickle_key: args.pickle_key.clone(),
+        strip_prefix: None,
+    };
     let ckpt = load_checkpoint(&[args.path.clone()], &opts)?;
     println!("Tensors in {}:", args.path.display());
     let mut tensors: Vec<_> = ckpt.tensors.iter().collect();
@@ -400,7 +414,12 @@ pub fn run_inspect(args: InspectArgs) -> anyhow::Result<()> {
             }
             let vals = cast::decode_to_f32(&t.data, t.dtype)?;
             let shown: Vec<String> = vals.iter().take(n).map(|v| v.to_string()).collect();
-            println!("  {} values[..{}]: [{}]", t.name, shown.len(), shown.join(", "));
+            println!(
+                "  {} values[..{}]: [{}]",
+                t.name,
+                shown.len(),
+                shown.join(", ")
+            );
         }
     }
     Ok(())

@@ -16,12 +16,18 @@ pub mod scalers;
 /// More threads than roughly the physical core count can *hurt* wall time here — Accelerate/BLAS
 /// does its own internal matmul threading, and the two can oversubscribe the machine. Benchmark
 /// before picking a non-default value for a given deployment.
-pub fn with_thread_pool<T>(threads: Option<usize>, f: impl FnOnce() -> anyhow::Result<T> + Send) -> anyhow::Result<T>
+pub fn with_thread_pool<T>(
+    threads: Option<usize>,
+    f: impl FnOnce() -> anyhow::Result<T> + Send,
+) -> anyhow::Result<T>
 where
     T: Send,
 {
     match threads {
-        Some(n) => rayon::ThreadPoolBuilder::new().num_threads(n).build()?.install(f),
+        Some(n) => rayon::ThreadPoolBuilder::new()
+            .num_threads(n)
+            .build()?
+            .install(f),
         None => f(),
     }
 }

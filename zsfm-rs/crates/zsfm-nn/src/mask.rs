@@ -21,6 +21,19 @@ pub fn make_causal_mask(seq: usize, num_masked: usize, device: &Device) -> Resul
         .unsqueeze(0)?)
 }
 
+/// Causal mask broadcast to `n_heads`: shape `[1, n_heads, seq, seq]`.
+/// Shared by Moirai-2 and other decoders that expand the base mask per head.
+pub fn make_causal_mask_heads(
+    seq: usize,
+    n_heads: usize,
+    num_masked: usize,
+    device: &Device,
+) -> Result<Tensor> {
+    let base = make_causal_mask(seq, num_masked, device)?;
+    // base is [1, 1, seq, seq] → broadcast to [1, n_heads, seq, seq].
+    Ok(base.broadcast_as((1, n_heads, seq, seq))?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -59,16 +59,31 @@ mod tests {
 
     #[test]
     fn top_level() {
-        assert_eq!(map_tensor_name("encoder.weight"), Some("encoder.weight".into()));
+        assert_eq!(
+            map_tensor_name("encoder.weight"),
+            Some("encoder.weight".into())
+        );
         assert_eq!(map_tensor_name("head.2.bias"), Some("head_fc2.bias".into()));
-        assert_eq!(map_tensor_name("thinking_embed"), Some("thinking_embed".into()));
+        assert_eq!(
+            map_tensor_name("thinking_embed"),
+            Some("thinking_embed".into())
+        );
     }
 
     #[test]
     fn block_and_y_encoder() {
-        assert_eq!(map_tensor_name("transformer_encoder.0.q_proj.weight"), Some("blk.0.q_proj.weight".into()));
-        assert_eq!(map_tensor_name("transformer_encoder.31.ff.down.weight"), Some("blk.31.ff_down.weight".into()));
-        assert_eq!(map_tensor_name("y_encoders.5.2.weight"), Some("y_enc.5.fc2.weight".into()));
+        assert_eq!(
+            map_tensor_name("transformer_encoder.0.q_proj.weight"),
+            Some("blk.0.q_proj.weight".into())
+        );
+        assert_eq!(
+            map_tensor_name("transformer_encoder.31.ff.down.weight"),
+            Some("blk.31.ff_down.weight".into())
+        );
+        assert_eq!(
+            map_tensor_name("y_encoders.5.2.weight"),
+            Some("y_enc.5.fc2.weight".into())
+        );
     }
 
     #[test]

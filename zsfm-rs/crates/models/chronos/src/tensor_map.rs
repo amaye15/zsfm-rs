@@ -10,23 +10,41 @@ pub fn map_tensor_name(hf_name: &str) -> Option<String> {
 
     // Input patch embedding (ResidualBlock: in_dim=3*patch_size, h_dim=d_ff, out_dim=d_model)
     match hf_name {
-        "input_patch_embedding.hidden_layer.weight"   => return Some("input_patch.hidden.weight".into()),
-        "input_patch_embedding.hidden_layer.bias"     => return Some("input_patch.hidden.bias".into()),
-        "input_patch_embedding.output_layer.weight"   => return Some("input_patch.output.weight".into()),
-        "input_patch_embedding.output_layer.bias"     => return Some("input_patch.output.bias".into()),
-        "input_patch_embedding.residual_layer.weight" => return Some("input_patch.skip.weight".into()),
-        "input_patch_embedding.residual_layer.bias"   => return Some("input_patch.skip.bias".into()),
+        "input_patch_embedding.hidden_layer.weight" => {
+            return Some("input_patch.hidden.weight".into())
+        }
+        "input_patch_embedding.hidden_layer.bias" => return Some("input_patch.hidden.bias".into()),
+        "input_patch_embedding.output_layer.weight" => {
+            return Some("input_patch.output.weight".into())
+        }
+        "input_patch_embedding.output_layer.bias" => return Some("input_patch.output.bias".into()),
+        "input_patch_embedding.residual_layer.weight" => {
+            return Some("input_patch.skip.weight".into())
+        }
+        "input_patch_embedding.residual_layer.bias" => return Some("input_patch.skip.bias".into()),
         _ => {}
     }
 
     // Output patch embedding (ResidualBlock: in_dim=d_model, h_dim=d_ff, out_dim=num_q*patch_size)
     match hf_name {
-        "output_patch_embedding.hidden_layer.weight"   => return Some("output_patch.hidden.weight".into()),
-        "output_patch_embedding.hidden_layer.bias"     => return Some("output_patch.hidden.bias".into()),
-        "output_patch_embedding.output_layer.weight"   => return Some("output_patch.output.weight".into()),
-        "output_patch_embedding.output_layer.bias"     => return Some("output_patch.output.bias".into()),
-        "output_patch_embedding.residual_layer.weight" => return Some("output_patch.skip.weight".into()),
-        "output_patch_embedding.residual_layer.bias"   => return Some("output_patch.skip.bias".into()),
+        "output_patch_embedding.hidden_layer.weight" => {
+            return Some("output_patch.hidden.weight".into())
+        }
+        "output_patch_embedding.hidden_layer.bias" => {
+            return Some("output_patch.hidden.bias".into())
+        }
+        "output_patch_embedding.output_layer.weight" => {
+            return Some("output_patch.output.weight".into())
+        }
+        "output_patch_embedding.output_layer.bias" => {
+            return Some("output_patch.output.bias".into())
+        }
+        "output_patch_embedding.residual_layer.weight" => {
+            return Some("output_patch.skip.weight".into())
+        }
+        "output_patch_embedding.residual_layer.bias" => {
+            return Some("output_patch.skip.bias".into())
+        }
         _ => {}
     }
 
@@ -60,7 +78,7 @@ fn map_time_attn_suffix(suffix: &str) -> Option<&'static str> {
         "self_attention.k.weight" => "time_attn.k.weight",
         "self_attention.v.weight" => "time_attn.v.weight",
         "self_attention.o.weight" => "time_attn.o.weight",
-        "layer_norm.weight"       => "time_attn_norm.weight",
+        "layer_norm.weight" => "time_attn_norm.weight",
         _ => return None,
     })
 }
@@ -71,15 +89,15 @@ fn map_group_attn_suffix(suffix: &str) -> Option<&'static str> {
         "self_attention.k.weight" => "group_attn.k.weight",
         "self_attention.v.weight" => "group_attn.v.weight",
         "self_attention.o.weight" => "group_attn.o.weight",
-        "layer_norm.weight"       => "group_attn_norm.weight",
+        "layer_norm.weight" => "group_attn_norm.weight",
         _ => return None,
     })
 }
 
 fn map_ffn_suffix(suffix: &str) -> Option<&'static str> {
     Some(match suffix {
-        "mlp.wi.weight"    => "ffn.wi.weight",
-        "mlp.wo.weight"    => "ffn.wo.weight",
+        "mlp.wi.weight" => "ffn.wi.weight",
+        "mlp.wo.weight" => "ffn.wo.weight",
         "layer_norm.weight" => "ffn_norm.weight",
         _ => return None,
     })
@@ -91,7 +109,10 @@ mod tests {
 
     #[test]
     fn token_embd() {
-        assert_eq!(map_tensor_name("shared.weight"), Some("token_embd.weight".into()));
+        assert_eq!(
+            map_tensor_name("shared.weight"),
+            Some("token_embd.weight".into())
+        );
     }
 
     #[test]

@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 
+use crate::common::DtypeArg;
 use anyhow::Context;
-use clap::{Subcommand, ValueEnum};
+use clap::Subcommand;
 
 use zsfm_gguf::GGMLType;
 use zsfm_toto::config::TotoConfig;
@@ -34,9 +35,7 @@ pub enum Command {
     },
     /// Print all tensor names in a local checkpoint file (safetensors, PyTorch
     /// pickle, GGUF, or npy/npz — format auto-detected).
-    InspectTensors {
-        path: PathBuf,
-    },
+    InspectTensors { path: PathBuf },
     /// Run Toto-2 time-series forecasting from a GGUF file.
     ///
     /// Reads a JSON request from stdin.
@@ -97,32 +96,13 @@ pub enum Command {
     },
 }
 
-/// BF16 is deliberately not offered here: candle 0.8's GGUF reader (used by every
-/// model's own `infer` loader) can't parse ggml dtype 30, so a bf16-converted file
-/// would fail to load right back through this same model's `infer` command. The
-/// format-agnostic `zsfm convert`/`zsfm inspect` path supports BF16 for interop with
-/// other GGUF consumers; this per-model path only offers dtypes every `infer` here
-/// can actually load.
-#[derive(Clone, ValueEnum)]
-pub enum DtypeArg {
-    F32,
-    F16,
-    Q8,
-}
-
-impl From<DtypeArg> for GGMLType {
-    fn from(d: DtypeArg) -> Self {
-        match d {
-            DtypeArg::F32 => GGMLType::F32,
-            DtypeArg::F16 => GGMLType::F16,
-            DtypeArg::Q8 => GGMLType::Q8_0,
-        }
-    }
-}
-
 pub async fn run(command: Command) -> anyhow::Result<()> {
     match command {
-        Command::Delete { model, model_dir, output } => {
+        Command::Delete {
+            model,
+            model_dir,
+            output,
+        } => {
             let canonical = zsfm_hub::canonical_gguf_path(&model_dir, &model);
             crate::common::delete_cached_model(&canonical, output.as_deref())?;
         }
@@ -130,50 +110,59 @@ pub async fn run(command: Command) -> anyhow::Result<()> {
             zsfm_hub::upload_repo(&repo, &token, &root).await?;
         }
 
-        Command::Convert { model, output, dtype, model_dir, token, redownload } => {
+        Command::Convert {
+            model,
+            output,
+            dtype,
+            model_dir,
+            token,
+            redownload,
+        } => {
             let canonical = zsfm_hub::canonical_gguf_path(&model_dir, &model);
-            if canonical.exists() && !redownload {
-                println!("Using cached F32 GGUF at {} …", canonical.display());
-                zsfm_checkpoint::recast(&canonical, &output, dtype.into())?;
-                println!("Wrote {}", output.display());
+            if crate::common::try_recast_from_cache(&canonical, &output, dtype.into(), redownload)?
+            {
                 return Ok(());
             }
 
-            println!("Downloading {model} into {} …", model_dir.display());
+            eprintln!("Downloading {model} into {} …", model_dir.display());
             let files = zsfm_hub::download_model(&model, token.as_deref(), &model_dir)
                 .await
                 .context("download failed")?;
 
-            let config_str = std::fs::read_to_string(&files.config_json)
-                .context("read config.json")?;
-            let config = TotoConfig::from_json(&config_str)
-                .context("parse config.json")?;
+            let config_str =
+                std::fs::read_to_string(&files.config_json).context("read config.json")?;
+            let config = TotoConfig::from_json(&config_str).context("parse config.json")?;
 
             println!(
                 "Config: {} layers, hidden={}, heads={}",
                 config.num_hidden_layers, config.hidden_size, config.num_attention_heads
             );
 
-            let f32_opts = ConvertOptions { output_dtype: GGMLType::F32 };
+            let f32_opts = ConvertOptions {
+                output_dtype: GGMLType::F32,
+            };
             convert(&model, &files, &config, &f32_opts, &canonical)?;
-            println!("Wrote canonical F32 GGUF to {} …", canonical.display());
+            eprintln!("Wrote canonical F32 GGUF to {} …", canonical.display());
             files.cleanup_weights();
 
             zsfm_checkpoint::recast(&canonical, &output, dtype.into())?;
-            println!("Wrote {}", output.display());
+            eprintln!("Wrote {}", output.display());
         }
 
         Command::InspectTensors { path } => crate::common::inspect_tensors(&path)?,
 
-        Command::Infer { gguf, config, context_length, use_f64 } => {
-            use std::io::Read;
-            let mut buf = String::new();
-            std::io::stdin().read_to_string(&mut buf).context("read stdin")?;
+        Command::Infer {
+            gguf,
+            config,
+            context_length,
+            use_f64,
+        } => {
+            let buf = zsfm_core::read_stdin_limited()?;
             let req: serde_json::Value = serde_json::from_str(&buf).context("parse JSON input")?;
 
             // contexts: [batch][variate][time] — univariate is [batch][1][time]
             let contexts = zsfm_core::parse_mv_contexts(req["context"].clone())?;
-            let horizon: usize = req["horizon"].as_u64().context("horizon must be a positive integer")? as usize;
+            let horizon = zsfm_core::parse_horizon(&req)?;
 
             let config_str = std::fs::read_to_string(&config)
                 .with_context(|| format!("read {}", config.display()))?;
@@ -224,10 +213,17 @@ pub async fn run(command: Command) -> anyhow::Result<()> {
                 }
                 eprintln!("Running forecast ({ctx_len} context steps, {n_var} variate(s) → {horizon} future steps) …");
                 let quantile_mat = model.forecast(&data, &mask, horizon).context("forecast")?;
-                fc_outputs.push(zsfm_core::quantile_matrix_to_output(&quantile_mat, &quantile_levels, median_idx));
+                fc_outputs.push(zsfm_core::quantile_matrix_to_output(
+                    &quantile_mat,
+                    &quantile_levels,
+                    median_idx,
+                ));
             }
 
-            println!("{}", zsfm_core::forecast_response_json("toto", total_ctx, horizon, fc_outputs)?);
+            println!(
+                "{}",
+                zsfm_core::forecast_response_json("toto", total_ctx, horizon, fc_outputs)?
+            );
         }
     }
 

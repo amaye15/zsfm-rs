@@ -29,9 +29,9 @@ impl RopeCache {
 
         // freqs: outer product [max_seq, half]
         // freqs[p, i] = p * inv_freq[i]
-        let pos_col = positions.unsqueeze(1)?;           // [max_seq, 1]
-        let inv_row = inv_freq.unsqueeze(0)?;            // [1, half]
-        let freqs = pos_col.broadcast_mul(&inv_row)?;    // [max_seq, half]
+        let pos_col = positions.unsqueeze(1)?; // [max_seq, 1]
+        let inv_row = inv_freq.unsqueeze(0)?; // [1, half]
+        let freqs = pos_col.broadcast_mul(&inv_row)?; // [max_seq, half]
 
         // emb = cat([freqs, freqs], dim=-1) → [max_seq, head_dim]
         let emb = Tensor::cat(&[&freqs, &freqs], 1)?;

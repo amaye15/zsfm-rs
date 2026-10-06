@@ -1,18 +1,18 @@
 /// MOMENT-1-large model configuration (T5-large backbone).
 #[derive(Clone)]
 pub struct MomentConfig {
-    pub d_model: usize,         // 1024
-    pub n_layers: usize,        // 24
-    pub n_heads: usize,         // 16
-    pub head_dim: usize,        // 64  (d_kv)
-    pub d_ff: usize,            // 2816
-    pub seq_len: usize,         // 512 (max context)
-    pub patch_len: usize,       // 8
-    pub patch_stride: usize,    // 8
-    pub num_patches: usize,     // 64  (seq_len / patch_stride)
-    pub rel_attn_num_buckets: usize,    // 32
-    pub rel_attn_max_distance: usize,   // 128
-    pub layer_norm_eps: f64,    // 1e-6
+    pub d_model: usize,               // 1024
+    pub n_layers: usize,              // 24
+    pub n_heads: usize,               // 16
+    pub head_dim: usize,              // 64  (d_kv)
+    pub d_ff: usize,                  // 2816
+    pub seq_len: usize,               // 512 (max context)
+    pub patch_len: usize,             // 8
+    pub patch_stride: usize,          // 8
+    pub num_patches: usize,           // 64  (seq_len / patch_stride)
+    pub rel_attn_num_buckets: usize,  // 32
+    pub rel_attn_max_distance: usize, // 128
+    pub layer_norm_eps: f64,          // 1e-6
 }
 
 impl MomentConfig {

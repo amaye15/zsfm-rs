@@ -16,6 +16,13 @@ use super::types::{GGMLType, GGUFMetaValue};
 const GGUF_MAGIC: &[u8; 4] = b"GGUF";
 const DEFAULT_ALIGNMENT: u64 = 32;
 
+/// Hard caps so a corrupt header cannot trigger huge allocations.
+pub const MAX_KV_COUNT: u64 = 100_000;
+pub const MAX_TENSOR_COUNT: u64 = 1_000_000;
+pub const MAX_STRING_LEN: usize = 16 << 20;
+pub const MAX_N_DIMS: u32 = 8;
+pub const MAX_TENSOR_BYTES: u64 = 64 << 30;
+
 /// Capacity every model crate should wrap its `BufReader<File>` with before parsing a GGUF
 /// file. Header/metadata parsing is hundreds to thousands of few-byte `read_u32`/`read_u64`
 /// calls (one per tensor dim, name length, metadata value, …); the default 8 KiB `BufReader`
@@ -67,6 +74,14 @@ impl GGUFFile {
         }
         let tensor_count = reader.read_u64::<LittleEndian>()?;
         let kv_count = reader.read_u64::<LittleEndian>()?;
+        anyhow::ensure!(
+            kv_count <= MAX_KV_COUNT,
+            "GGUF kv_count too large: {kv_count} (max {MAX_KV_COUNT})"
+        );
+        anyhow::ensure!(
+            tensor_count <= MAX_TENSOR_COUNT,
+            "GGUF tensor_count too large: {tensor_count} (max {MAX_TENSOR_COUNT})"
+        );
 
         let mut metadata = Vec::with_capacity(kv_count as usize);
         for _ in 0..kv_count {
@@ -92,6 +107,10 @@ impl GGUFFile {
         for _ in 0..tensor_count {
             let name = read_string(reader)?;
             let n_dims = reader.read_u32::<LittleEndian>()?;
+            anyhow::ensure!(
+                n_dims <= MAX_N_DIMS,
+                "tensor {name}: n_dims too large: {n_dims} (max {MAX_N_DIMS})"
+            );
             let mut shape = Vec::with_capacity(n_dims as usize);
             for _ in 0..n_dims {
                 shape.push(reader.read_u64::<LittleEndian>()?);
@@ -105,13 +124,22 @@ impl GGUFFile {
                 other => bail!("tensor {name}: ggml dtype {other} not supported by this reader"),
             };
             let offset = reader.read_u64::<LittleEndian>()?;
-            tensors.push(GGUFTensorInfo { name, shape, dtype, offset });
+            tensors.push(GGUFTensorInfo {
+                name,
+                shape,
+                dtype,
+                offset,
+            });
         }
 
         let pos = reader.stream_position()?;
         let data_start = pos.div_ceil(alignment) * alignment;
 
-        Ok(GGUFFile { metadata, tensors, data_start })
+        Ok(GGUFFile {
+            metadata,
+            tensors,
+            data_start,
+        })
     }
 
     /// Raw stored bytes of one tensor.
@@ -120,8 +148,14 @@ impl GGUFFile {
         reader: &mut (impl Read + Seek),
         info: &GGUFTensorInfo,
     ) -> Result<Vec<u8>> {
+        let n_bytes = info.n_bytes();
+        anyhow::ensure!(
+            n_bytes <= MAX_TENSOR_BYTES,
+            "tensor {}: n_bytes too large: {n_bytes} (max {MAX_TENSOR_BYTES})",
+            info.name
+        );
         reader.seek(SeekFrom::Start(self.data_start + info.offset))?;
-        let mut buf = vec![0u8; info.n_bytes() as usize];
+        let mut buf = vec![0u8; n_bytes as usize];
         reader
             .read_exact(&mut buf)
             .with_context(|| format!("read tensor {} data", info.name))?;
@@ -164,6 +198,10 @@ impl GGUFFile {
 
 fn read_string(reader: &mut impl Read) -> Result<String> {
     let len = reader.read_u64::<LittleEndian>()? as usize;
+    anyhow::ensure!(
+        len <= MAX_STRING_LEN,
+        "GGUF string too long: {len} bytes (max {MAX_STRING_LEN})"
+    );
     let mut buf = vec![0u8; len];
     reader.read_exact(&mut buf)?;
     String::from_utf8(buf).context("GGUF string is not UTF-8")
@@ -257,10 +295,7 @@ mod tests {
         let mut w = GGUFWriter::new();
         w.add_metadata("general.architecture", GGUFMetaValue::String("test".into()));
         w.add_metadata("test.count", GGUFMetaValue::Uint32(7));
-        w.add_metadata(
-            "test.floats",
-            GGUFMetaValue::ArrayFloat32(vec![0.5, 1.5]),
-        );
+        w.add_metadata("test.floats", GGUFMetaValue::ArrayFloat32(vec![0.5, 1.5]));
 
         let f32_vals: Vec<f32> = (0..32).map(|i| i as f32 / 4.0).collect();
         let f32_bytes: Vec<u8> = f32_vals.iter().flat_map(|v| v.to_le_bytes()).collect();

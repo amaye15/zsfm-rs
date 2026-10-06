@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use crate::common::DtypeArg;
 use anyhow::Context;
 use clap::{Subcommand, ValueEnum};
 use serde::Serialize;
@@ -13,26 +14,6 @@ use zsfm_tabdpt::TabDptModel;
 pub enum TaskArg {
     Classification,
     Regression,
-}
-
-/// BF16 is deliberately not offered here — see the same note on every other model's CLI:
-/// candle 0.8's GGUF reader can't parse ggml dtype 30, so a bf16-converted file couldn't be
-/// loaded back by this crate's own `infer` command.
-#[derive(Clone, ValueEnum)]
-pub enum DtypeArg {
-    F32,
-    F16,
-    Q8,
-}
-
-impl From<DtypeArg> for GGMLType {
-    fn from(d: DtypeArg) -> Self {
-        match d {
-            DtypeArg::F32 => GGMLType::F32,
-            DtypeArg::F16 => GGMLType::F16,
-            DtypeArg::Q8 => GGMLType::Q8_0,
-        }
-    }
 }
 
 #[derive(Subcommand)]
@@ -118,7 +99,11 @@ fn dtype_name(d: &DtypeArg) -> &'static str {
 
 pub async fn run(command: Command) -> anyhow::Result<()> {
     match command {
-        Command::Delete { model, model_dir, output } => {
+        Command::Delete {
+            model,
+            model_dir,
+            output,
+        } => {
             let canonical = zsfm_hub::canonical_gguf_path(&model_dir, &model);
             crate::common::delete_cached_model(&canonical, output.as_deref())?;
         }
@@ -126,14 +111,22 @@ pub async fn run(command: Command) -> anyhow::Result<()> {
             zsfm_hub::upload_repo(&repo, &token, &root).await?;
         }
 
-        Command::Convert { model, filename, output, dtype, model_dir, token, redownload } => {
-            let output = output.unwrap_or_else(|| PathBuf::from(format!("gguf/tabdpt-{}.gguf", dtype_name(&dtype))));
+        Command::Convert {
+            model,
+            filename,
+            output,
+            dtype,
+            model_dir,
+            token,
+            redownload,
+        } => {
+            let output = output.unwrap_or_else(|| {
+                PathBuf::from(format!("gguf/tabdpt-{}.gguf", dtype_name(&dtype)))
+            });
             let canonical = zsfm_hub::canonical_gguf_path(&model_dir, &model);
 
-            if canonical.exists() && !redownload {
-                println!("Using cached F32 GGUF at {} …", canonical.display());
-                zsfm_checkpoint::recast(&canonical, &output, dtype.into())?;
-                println!("Wrote {}", output.display());
+            if crate::common::try_recast_from_cache(&canonical, &output, dtype.into(), redownload)?
+            {
                 return Ok(());
             }
             // download_file() only creates model_dir itself, not the namespaced
@@ -143,31 +136,34 @@ pub async fn run(command: Command) -> anyhow::Result<()> {
                 std::fs::create_dir_all(parent).context("create canonical GGUF dir")?;
             }
 
-            println!("Downloading {model}/{filename} into {} …", model_dir.display());
+            eprintln!(
+                "Downloading {model}/{filename} into {} …",
+                model_dir.display()
+            );
             let path = zsfm_hub::download_file(&model, &filename, token.as_deref(), &model_dir)
                 .await
                 .context("download failed")?;
 
             let config = TabDptConfig::default_v1_2();
-            let f32_opts = ConvertOptions { output_dtype: GGMLType::F32 };
+            let f32_opts = ConvertOptions {
+                output_dtype: GGMLType::F32,
+            };
             convert(std::slice::from_ref(&path), &config, &f32_opts, &canonical)?;
-            println!("Wrote canonical F32 GGUF to {} …", canonical.display());
+            eprintln!("Wrote canonical F32 GGUF to {} …", canonical.display());
             let _ = std::fs::remove_file(&path);
 
             zsfm_checkpoint::recast(&canonical, &output, dtype.into())?;
-            println!("Wrote {}", output.display());
+            eprintln!("Wrote {}", output.display());
         }
 
         Command::InspectTensors { path } => crate::common::inspect_tensors(&path)?,
 
         Command::Infer { gguf, task } => {
-            use std::io::Read;
-            let mut buf = String::new();
-            std::io::stdin().read_to_string(&mut buf).context("read stdin")?;
+            let buf = zsfm_core::read_stdin_limited()?;
             let req: serde_json::Value = serde_json::from_str(&buf).context("parse JSON input")?;
 
-            let x_support = parse_matrix(&req["x_support"])?;
-            let x_query = parse_matrix(&req["x_query"])?;
+            let x_support = zsfm_core::parse_matrix(&req["x_support"])?;
+            let x_query = zsfm_core::parse_matrix(&req["x_query"])?;
 
             let config = TabDptConfig::default_v1_2();
             eprintln!("Loading model from {} …", gguf.display());
@@ -177,24 +173,39 @@ pub async fn run(command: Command) -> anyhow::Result<()> {
                 TaskArg::Classification => {
                     let y_support: Vec<usize> = serde_json::from_value(req["y_support"].clone())
                         .context("expected a 1D JSON integer array for `y_support`")?;
-                    let n_classes = req.get("n_classes").and_then(|v| v.as_u64()).unwrap_or_else(|| {
-                        y_support.iter().copied().max().map(|m| m as u64 + 1).unwrap_or(1)
-                    }) as usize;
+                    let n_classes = req
+                        .get("n_classes")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or_else(|| {
+                            y_support
+                                .iter()
+                                .copied()
+                                .max()
+                                .map(|m| m as u64 + 1)
+                                .unwrap_or(1)
+                        }) as usize;
 
                     eprintln!(
                         "Running classification ({} support / {} query rows, {n_classes} classes) …",
                         x_support.len(),
                         x_query.len()
                     );
-                    let probabilities =
-                        model.predict_classification(&x_support, &y_support, &x_query, n_classes).context("predict")?;
+                    let probabilities = model
+                        .predict_classification(&x_support, &y_support, &x_query, n_classes)
+                        .context("predict")?;
 
                     #[derive(Serialize)]
                     struct Resp {
                         task: &'static str,
                         probabilities: Vec<Vec<f32>>,
                     }
-                    println!("{}", serde_json::to_string_pretty(&Resp { task: "classification", probabilities })?);
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&Resp {
+                            task: "classification",
+                            probabilities
+                        })?
+                    );
                 }
                 TaskArg::Regression => {
                     let y_support: Vec<f32> = serde_json::from_value(req["y_support"].clone())
@@ -205,22 +216,26 @@ pub async fn run(command: Command) -> anyhow::Result<()> {
                         x_support.len(),
                         x_query.len()
                     );
-                    let predictions = model.predict_regression(&x_support, &y_support, &x_query).context("predict")?;
+                    let predictions = model
+                        .predict_regression(&x_support, &y_support, &x_query)
+                        .context("predict")?;
 
                     #[derive(Serialize)]
                     struct Resp {
                         task: &'static str,
                         predictions: Vec<f32>,
                     }
-                    println!("{}", serde_json::to_string_pretty(&Resp { task: "regression", predictions })?);
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&Resp {
+                            task: "regression",
+                            predictions
+                        })?
+                    );
                 }
             }
         }
     }
 
     Ok(())
-}
-
-fn parse_matrix(val: &serde_json::Value) -> anyhow::Result<Vec<Vec<f32>>> {
-    serde_json::from_value(val.clone()).context("expected a 2D JSON array")
 }

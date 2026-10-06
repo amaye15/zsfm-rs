@@ -4,8 +4,8 @@ use std::path::Path;
 
 use anyhow::Context;
 use indicatif::{ProgressBar, ProgressStyle};
-use safetensors::SafeTensors;
 use safetensors::Dtype as StDtype;
+use safetensors::SafeTensors;
 
 use zsfm_gguf::{GGMLType, GGUFMetaValue, GGUFWriter};
 use zsfm_hub::ModelFiles;
@@ -69,8 +69,12 @@ pub fn convert(
                 }
             };
 
-            let src_dtype = ggml_type_from_st(tensor_view.dtype())
-                .with_context(|| format!("tensor {hf_name}: unsupported dtype {:?}", tensor_view.dtype()))?;
+            let src_dtype = ggml_type_from_st(tensor_view.dtype()).with_context(|| {
+                format!(
+                    "tensor {hf_name}: unsupported dtype {:?}",
+                    tensor_view.dtype()
+                )
+            })?;
 
             let raw_data = tensor_view.data();
             let py_shape = tensor_view.shape();
@@ -83,20 +87,21 @@ pub fn convert(
             // transpose data and store GGUF shape in Python order (not reversed). Candle
             // reverses the shape at load time, placing the aligned dim innermost. The inference
             // loader detects the transposition by checking dim(0) against the expected d_out.
-            let (dst_dtype, gguf_shape, tensor_data) =
-                if opts.output_dtype == GGMLType::Q8_0 && (innermost % 32 != 0 || n_elems % 32 != 0) {
-                    fallback_count += 1;
-                    let data = cast_data(raw_data, src_dtype, GGMLType::F32)
-                        .with_context(|| format!("tensor {hf_name}: cast failed"))?;
-                    let gs = py_shape.iter().rev().map(|&d| d as u64).collect();
-                    (GGMLType::F32, gs, data)
-                } else {
-                    let dst = opts.output_dtype;
-                    let data = cast_data(raw_data, src_dtype, dst)
-                        .with_context(|| format!("tensor {hf_name}: cast failed"))?;
-                    let gs = py_shape.iter().rev().map(|&d| d as u64).collect();
-                    (dst, gs, data)
-                };
+            let (dst_dtype, gguf_shape, tensor_data) = if opts.output_dtype == GGMLType::Q8_0
+                && (innermost % 32 != 0 || n_elems % 32 != 0)
+            {
+                fallback_count += 1;
+                let data = cast_data(raw_data, src_dtype, GGMLType::F32)
+                    .with_context(|| format!("tensor {hf_name}: cast failed"))?;
+                let gs = py_shape.iter().rev().map(|&d| d as u64).collect();
+                (GGMLType::F32, gs, data)
+            } else {
+                let dst = opts.output_dtype;
+                let data = cast_data(raw_data, src_dtype, dst)
+                    .with_context(|| format!("tensor {hf_name}: cast failed"))?;
+                let gs = py_shape.iter().rev().map(|&d| d as u64).collect();
+                (dst, gs, data)
+            };
 
             writer.add_tensor(gguf_name, gguf_shape, dst_dtype, tensor_data);
             mapped += 1;
@@ -146,24 +151,72 @@ fn ggml_type_from_st(dtype: StDtype) -> anyhow::Result<GGMLType> {
 fn write_metadata(writer: &mut GGUFWriter, model_id: &str, config: &Chronos2Config) {
     let cc = &config.chronos_config;
 
-    writer.add_metadata("general.architecture", GGUFMetaValue::String("chronos2".into()));
+    writer.add_metadata(
+        "general.architecture",
+        GGUFMetaValue::String("chronos2".into()),
+    );
     writer.add_metadata("general.name", GGUFMetaValue::String(model_id.into()));
-    writer.add_metadata("chronos2.block_count",        GGUFMetaValue::Uint32(config.num_layers));
-    writer.add_metadata("chronos2.embedding_length",   GGUFMetaValue::Uint32(config.d_model));
-    writer.add_metadata("chronos2.feed_forward_length",GGUFMetaValue::Uint32(config.d_ff));
-    writer.add_metadata("chronos2.attention.head_count", GGUFMetaValue::Uint32(config.num_heads));
-    writer.add_metadata("chronos2.attention.head_dim",   GGUFMetaValue::Uint32(config.d_kv));
-    writer.add_metadata("chronos2.rope_theta",         GGUFMetaValue::Float64(config.rope_theta));
-    writer.add_metadata("chronos2.layer_norm_epsilon", GGUFMetaValue::Float64(config.layer_norm_epsilon));
-    writer.add_metadata("chronos2.context_length",     GGUFMetaValue::Uint32(cc.context_length));
-    writer.add_metadata("chronos2.patch_size",         GGUFMetaValue::Uint32(cc.input_patch_size));
-    writer.add_metadata("chronos2.patch_stride",       GGUFMetaValue::Uint32(cc.input_patch_stride));
-    writer.add_metadata("chronos2.quantile_count",     GGUFMetaValue::Uint32(cc.quantiles.len() as u32));
-    writer.add_metadata("chronos2.quantiles",          GGUFMetaValue::ArrayFloat32(cc.quantiles.clone()));
-    writer.add_metadata("chronos2.use_reg_token",      GGUFMetaValue::Bool(cc.use_reg_token));
-    writer.add_metadata("chronos2.use_arcsinh",        GGUFMetaValue::Bool(cc.use_arcsinh));
-    writer.add_metadata("chronos2.time_encoding_scale",GGUFMetaValue::Uint32(config.time_encoding_scale()));
-    writer.add_metadata("chronos2.dense_act_fn",       GGUFMetaValue::String(config.dense_act_fn().into()));
+    writer.add_metadata(
+        "chronos2.block_count",
+        GGUFMetaValue::Uint32(config.num_layers),
+    );
+    writer.add_metadata(
+        "chronos2.embedding_length",
+        GGUFMetaValue::Uint32(config.d_model),
+    );
+    writer.add_metadata(
+        "chronos2.feed_forward_length",
+        GGUFMetaValue::Uint32(config.d_ff),
+    );
+    writer.add_metadata(
+        "chronos2.attention.head_count",
+        GGUFMetaValue::Uint32(config.num_heads),
+    );
+    writer.add_metadata(
+        "chronos2.attention.head_dim",
+        GGUFMetaValue::Uint32(config.d_kv),
+    );
+    writer.add_metadata(
+        "chronos2.rope_theta",
+        GGUFMetaValue::Float64(config.rope_theta),
+    );
+    writer.add_metadata(
+        "chronos2.layer_norm_epsilon",
+        GGUFMetaValue::Float64(config.layer_norm_epsilon),
+    );
+    writer.add_metadata(
+        "chronos2.context_length",
+        GGUFMetaValue::Uint32(cc.context_length),
+    );
+    writer.add_metadata(
+        "chronos2.patch_size",
+        GGUFMetaValue::Uint32(cc.input_patch_size),
+    );
+    writer.add_metadata(
+        "chronos2.patch_stride",
+        GGUFMetaValue::Uint32(cc.input_patch_stride),
+    );
+    writer.add_metadata(
+        "chronos2.quantile_count",
+        GGUFMetaValue::Uint32(cc.quantiles.len() as u32),
+    );
+    writer.add_metadata(
+        "chronos2.quantiles",
+        GGUFMetaValue::ArrayFloat32(cc.quantiles.clone()),
+    );
+    writer.add_metadata(
+        "chronos2.use_reg_token",
+        GGUFMetaValue::Bool(cc.use_reg_token),
+    );
+    writer.add_metadata("chronos2.use_arcsinh", GGUFMetaValue::Bool(cc.use_arcsinh));
+    writer.add_metadata(
+        "chronos2.time_encoding_scale",
+        GGUFMetaValue::Uint32(config.time_encoding_scale()),
+    );
+    writer.add_metadata(
+        "chronos2.dense_act_fn",
+        GGUFMetaValue::String(config.dense_act_fn().into()),
+    );
 }
 
 fn load_shard_bytes(shards: &[std::path::PathBuf]) -> anyhow::Result<Vec<Vec<u8>>> {

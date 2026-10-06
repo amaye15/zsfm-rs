@@ -1,5 +1,7 @@
 # Optimisation Log
 
+> Historical note: paths like `python benchmark/run_bench.py`, `tirex-v1/`, `lag-llama-v1/`, `timer-v3`, `timesfm-v2.5`, and `MODELS[...]` refer to the pre-workspace layout. Current code lives in `zsfm-rs/crates/zsfm-bench` and `zsfm-rs/crates/models/*`. Entries below are kept verbatim as measurement history.
+
 Tracking before/after results for each optimisation applied to the GGUF inference binaries.
 Canonical measurement: `zsfm-bench run --dataset <name> --context 512 --horizon 96 --windows 30` (or `zsfm-bench report`
 for all 21 datasets at once) across all 21 datasets, context=512, horizon=96, 30 windows. The historical entries below

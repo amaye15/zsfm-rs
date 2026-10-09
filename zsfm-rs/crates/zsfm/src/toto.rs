@@ -157,6 +157,9 @@ pub async fn run(command: Command) -> anyhow::Result<()> {
             context_length,
             use_f64,
         } => {
+            if zsfm_burn::engine_from_env() == zsfm_burn::Engine::Burn {
+                return run_infer_burn(&gguf, &config, context_length, use_f64).await;
+            }
             let buf = zsfm_core::read_stdin_limited()?;
             let req: serde_json::Value = serde_json::from_str(&buf).context("parse JSON input")?;
 
@@ -227,5 +230,75 @@ pub async fn run(command: Command) -> anyhow::Result<()> {
         }
     }
 
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn run_infer_burn(
+    gguf: &std::path::PathBuf,
+    config: &std::path::PathBuf,
+    context_length: Option<usize>,
+    use_f64: bool,
+) -> anyhow::Result<()> {
+    use zsfm_toto::infer::burn::BurnTotoModel;
+    use zsfm_toto::infer::InferConfig;
+
+    if use_f64 {
+        anyhow::bail!("toto Burn engine supports compute_f64=false only");
+    }
+    let buf = zsfm_core::read_stdin_limited()?;
+    let req: serde_json::Value = serde_json::from_str(&buf).context("parse JSON input")?;
+    let contexts = zsfm_core::parse_mv_contexts(req["context"].clone())?;
+    let horizon = zsfm_core::parse_horizon(&req)?;
+
+    let config_str =
+        std::fs::read_to_string(config).with_context(|| format!("read {}", config.display()))?;
+    let toto_config: serde_json::Value = serde_json::from_str(&config_str)?;
+
+    let max_ctx = context_length.unwrap_or(4096);
+    let quantile_levels = [0.1f32, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9];
+    let median_idx = 4;
+
+    eprintln!("Loading Burn model from {} …", gguf.display());
+    let cfg = InferConfig::from_json_value(&toto_config);
+    let model = BurnTotoModel::load(gguf, cfg).context("load model")?;
+    let patch_size = model.patch_size();
+
+    let mut fc_outputs = Vec::new();
+    let mut total_ctx: usize = 0;
+    for raw_variates in &contexts {
+        let n_var = raw_variates.len();
+        anyhow::ensure!(n_var > 0, "each context must have at least one variate");
+        total_ctx += raw_variates.iter().map(|v| v.len()).sum::<usize>();
+        let v0_len = raw_variates[0].len();
+        let ctx_len = (v0_len.min(max_ctx as usize) / patch_size) * patch_size;
+        anyhow::ensure!(
+            ctx_len > 0,
+            "context too short — need at least {patch_size} timesteps, got {v0_len}"
+        );
+        let mut data: Vec<Vec<f32>> = Vec::with_capacity(n_var);
+        let mut mask: Vec<Vec<bool>> = Vec::with_capacity(n_var);
+        for (vi, raw_ctx) in raw_variates.iter().enumerate() {
+            anyhow::ensure!(
+                raw_ctx.len() >= ctx_len,
+                "variate {vi} has fewer than {ctx_len} timesteps (needed to match variate 0)"
+            );
+            let start = raw_ctx.len() - ctx_len;
+            data.push(raw_ctx[start..].to_vec());
+            mask.push(vec![true; ctx_len]);
+        }
+        eprintln!("Running forecast ({ctx_len} context steps, {n_var} variate(s) → {horizon} future steps) …");
+        let quantile_mat = model.forecast(&data, &mask, horizon).context("forecast")?;
+        fc_outputs.push(zsfm_core::quantile_matrix_to_output(
+            &quantile_mat,
+            &quantile_levels,
+            median_idx,
+        ));
+    }
+
+    println!(
+        "{}",
+        zsfm_core::forecast_response_json("toto", total_ctx, horizon, fc_outputs)?
+    );
     Ok(())
 }

@@ -359,7 +359,7 @@ Each model crate under `zsfm-rs/crates/models/` owns its architecture, checkpoin
 # Rust
 cd zsfm-rs
 cargo build --release --workspace
-cargo test  --release --workspace   # 176 tests (GGUF round-trip, dtype casting, arch shapes, bench logic)
+cargo test  --release --workspace   # 182 tests (GGUF round-trip, dtype casting, arch shapes, bench logic)
 
 # Python (uv + pyo3 + maturin)
 uv sync

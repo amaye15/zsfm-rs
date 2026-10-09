@@ -16,6 +16,7 @@ use rayon::prelude::*;
 
 use crate::config::Moirai2Config;
 
+pub mod burn;
 mod rope;
 use rope::apply_partial_rope;
 

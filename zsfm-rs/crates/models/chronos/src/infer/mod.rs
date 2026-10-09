@@ -7,6 +7,7 @@
 //! * No attention scale (scale=1.0 in MHA)
 //! * GroupSelfAttention for batch=1 reduces to position-wise v → o projection
 
+pub mod burn;
 mod rope;
 
 use std::io::{BufReader, Read, Seek};

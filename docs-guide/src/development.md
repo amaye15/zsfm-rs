@@ -45,7 +45,7 @@ uv run pytest tests/python -v          # or: .venv/bin/python -m pytest
 uv run python -c "import zsfm; print(zsfm.list_models())"
 ```
 
-The baseline is 176 passing tests across the workspace (unit tests for tensor casting, GGUF round-tripping, per-model architecture/shape checks, and `zsfm-bench`'s window-generation/metrics/ensembling logic) plus 6 Python tests (`tests/python/test_zsfm.py`). CI (`.github/workflows/ci.yml`) runs `cargo fmt --check`, `cargo clippy -D warnings`, Rust (`cargo build`/`cargo test`) and Python (`uv run maturin develop` + `pytest`) on every push to `main` and every PR, on Linux and macOS, plus a Windows `cargo check` and `cargo audit`.
+The baseline is 182 passing tests across the workspace (unit tests for tensor casting, GGUF round-tripping, per-model architecture/shape checks, and `zsfm-bench`'s window-generation/metrics/ensembling logic) plus 6 Python tests (`tests/python/test_zsfm.py`). CI (`.github/workflows/ci.yml`) runs `cargo fmt --check`, `cargo clippy -D warnings`, Rust (`cargo build`/`cargo test`) and Python (`uv run maturin develop` + `pytest`) on every push to `main` and every PR, on Linux and macOS, plus a Windows `cargo check` and `cargo audit`.
 
 ## Verifying a model port is correct
 

@@ -12,6 +12,7 @@
 //! * τ-rule: `residual_split` is identity; `residual_add(h,skip,τ)` = `h*(τ/d) + skip*(1/d)` where `d=√(1+τ²)`
 //! * `PerDimScale(q, w)` = `q * softplus(w) / log(2)` — the 0.52103 unit-scaling factors cancel
 
+pub mod burn;
 mod rope;
 
 use std::collections::HashMap;

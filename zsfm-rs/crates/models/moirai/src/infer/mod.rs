@@ -20,6 +20,8 @@ use rayon::prelude::*;
 
 use crate::config::MoiraiConfig;
 
+pub mod burn;
+
 // Chosen patch size for inference: 32 (index 2 in [8,16,32,64,128])
 const PATCH_SIZE: usize = 32;
 const PATCH_IDX: usize = 2;

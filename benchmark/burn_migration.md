@@ -37,7 +37,7 @@ match; model-level weights pending download).
 | moment | ✅ ported, default candle | 0.00e0 | pending real weights | `BurnMomentModel` in `models/moment/src/infer/burn.rs`; T5 rel-bias + gated-GELU; `--engine burn` live |
 | chronos | queued | — | — | RoPE family |
 | toto | queued | — | — | RoPE + F64 paths |
-| moirai | queued | — | — | — |
+| moirai | ✅ ported, default candle | 9.5e-7 | pending real weights | `BurnMoiraiModel`; QK-norm + split RoPE + vbias; `--engine burn` live |
 | moirai2 | queued | — | — | partial RoPE |
 | lag_llama | queued | — | — | keep simdeez fast path |
 | flowstate | queued | — | — | keep simdeez fast path |

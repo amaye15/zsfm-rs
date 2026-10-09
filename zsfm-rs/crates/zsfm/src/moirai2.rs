@@ -134,6 +134,9 @@ pub async fn run(command: Command) -> anyhow::Result<()> {
         Command::InspectTensors { path } => crate::common::inspect_tensors(&path)?,
 
         Command::Infer { gguf } => {
+            if zsfm_burn::engine_from_env() == zsfm_burn::Engine::Burn {
+                return run_infer_burn(&gguf).await;
+            }
             let buf = zsfm_core::read_stdin_limited()?;
             let req: serde_json::Value = serde_json::from_str(&buf).context("parse JSON input")?;
             let contexts = zsfm_core::parse_mv_contexts(req["context"].clone())?;
@@ -185,5 +188,58 @@ pub async fn run(command: Command) -> anyhow::Result<()> {
         }
     }
 
+    Ok(())
+}
+
+async fn run_infer_burn(gguf: &std::path::PathBuf) -> anyhow::Result<()> {
+    use zsfm_moirai2::infer::burn::BurnMoirai2Model;
+
+    let buf = zsfm_core::read_stdin_limited()?;
+    let req: serde_json::Value = serde_json::from_str(&buf).context("parse JSON input")?;
+    let contexts = zsfm_core::parse_mv_contexts(req["context"].clone())?;
+    let horizon = zsfm_core::parse_horizon(&req)?;
+    let config = Moirai2Config::default();
+
+    eprintln!("Loading Burn model from {} …", gguf.display());
+    let model = BurnMoirai2Model::load(gguf, config).context("load model")?;
+
+    let mut fc_outputs: Vec<ForecastOutput> = Vec::new();
+    let mut total_ctx: usize = 0;
+
+    for raw_variates in &contexts {
+        let n_var = raw_variates.len();
+        anyhow::ensure!(n_var > 0, "each context must have at least one variate");
+
+        if n_var == 1 {
+            let ctx = &raw_variates[0];
+            anyhow::ensure!(!ctx.is_empty(), "context series must not be empty");
+            total_ctx += ctx.len();
+            let point = model.forecast(ctx, horizon).context("forecast")?;
+            fc_outputs.push(ForecastOutput::Univariate {
+                point,
+                quantiles: Default::default(),
+            });
+        } else {
+            let mut var_forecasts: Vec<VariateForecast> = Vec::with_capacity(n_var);
+            for (vi, ctx) in raw_variates.iter().enumerate() {
+                anyhow::ensure!(!ctx.is_empty(), "variate {vi} context must not be empty");
+                total_ctx += ctx.len();
+                let point = model
+                    .forecast(ctx, horizon)
+                    .with_context(|| format!("forecast variate {vi}"))?;
+                var_forecasts.push(VariateForecast {
+                    point,
+                    quantiles: Default::default(),
+                });
+            }
+            fc_outputs.push(ForecastOutput::Multivariate {
+                variates: var_forecasts,
+            });
+        }
+    }
+    println!(
+        "{}",
+        zsfm_core::forecast_response_json("moirai2", total_ctx, horizon, fc_outputs)?
+    );
     Ok(())
 }

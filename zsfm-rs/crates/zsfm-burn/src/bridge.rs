@@ -27,6 +27,17 @@ pub fn burn_weight_1d(t: &candle_core::Tensor, device: &Device) -> anyhow::Resul
     ))
 }
 
+/// Burn `Tensor<3>` from a 3D candle F32 tensor (same values, same shape).
+pub fn burn_weight_3d(t: &candle_core::Tensor, device: &Device) -> anyhow::Result<Tensor<3>> {
+    let dims = t.dims().to_vec();
+    anyhow::ensure!(dims.len() == 3, "expected 3D weight, got {dims:?}");
+    let data: Vec<f32> = t.flatten_all()?.to_vec1()?;
+    Ok(Tensor::<3>::from_data(
+        TensorData::new(data, [dims[0], dims[1], dims[2]]),
+        device,
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

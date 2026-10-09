@@ -44,6 +44,7 @@ timer-v3/Large-Time-Series-Model/
 # Hugging Face
 hf_openapi.md
 
-# Model cache (created by `zsfm <model> convert --model-dir`)
-models/
-zsfm-rs/models/
+# Model cache (created by `zsfm <model> convert --model-dir`, always at the
+# repo root for default invocations). Anchored so it never matches the
+# `zsfm-rs/crates/models/` source tree.
+/models/

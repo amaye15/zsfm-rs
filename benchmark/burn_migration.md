@@ -32,7 +32,7 @@ match; model-level weights pending download).
 | Model | Status | Probe err | Bench MAE Δ | Notes |
 |-------|--------|----------:|------------:|-------|
 | ttm | ✅ ported, default candle | 3.05e-5 | pending real weights | `BurnTtmModel` in `models/ttm/src/infer/burn.rs`; synthetic-GGUF parity test; `--engine burn` live |
-| timesfm | queued | — | — | — |
+| timesfm | ✅ ported, default candle | 1.5e-5 (attn block) | pending real weights | `BurnTimesFMModel` in `models/timesfm/src/infer/burn.rs`; rope+residual+attention parity tests; `--engine burn` live |
 | sundial | queued | — | — | — |
 | moment | queued | — | — | — |
 | chronos | queued | — | — | RoPE family |

@@ -1,4 +1,5 @@
-mod rope;
+pub mod burn;
+pub(crate) mod rope;
 
 use std::collections::HashMap;
 use std::io::{BufReader, Read, Seek};

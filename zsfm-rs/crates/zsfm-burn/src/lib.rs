@@ -9,9 +9,11 @@
 
 pub mod attn;
 pub mod bench;
+pub mod bridge;
 pub mod engine;
 pub mod linear;
 pub mod norm;
 
 pub use bench::{bench_op, max_abs_err, OpMeasurement};
+pub use bridge::{burn_weight_1d, burn_weight_2d};
 pub use engine::{engine_from_env, Engine};

@@ -158,6 +158,9 @@ async fn cmd_convert(
 }
 
 fn cmd_infer(gguf_path: &PathBuf) -> Result<()> {
+    if zsfm_burn::engine_from_env() == zsfm_burn::Engine::Burn {
+        return cmd_infer_burn(gguf_path);
+    }
     let buf = zsfm_core::read_stdin_limited()?;
     let req: serde_json::Value = serde_json::from_str(&buf).context("parse JSON input")?;
     let contexts = zsfm_core::parse_mv_contexts(req["context"].clone())?;
@@ -188,6 +191,56 @@ fn cmd_infer(gguf_path: &PathBuf) -> Result<()> {
             horizon
         );
         // outputs[0] = point forecast, outputs[1..9] = quantile forecasts q0.1..q0.9
+        let outputs = model.forecast(ctx, horizon)?;
+
+        let point = outputs.first().cloned().unwrap_or_default();
+        let mut quantiles = BTreeMap::new();
+        for (i, label) in quantile_labels.iter().enumerate() {
+            if let Some(q) = outputs.get(i + 1) {
+                quantiles.insert(label.to_string(), q.clone());
+            }
+        }
+        fc_outputs.push(ForecastOutput::Univariate { point, quantiles });
+    }
+    println!(
+        "{}",
+        zsfm_core::forecast_response_json("timesfm", total_ctx, horizon, fc_outputs)?
+    );
+    Ok(())
+}
+
+fn cmd_infer_burn(gguf_path: &PathBuf) -> Result<()> {
+    use zsfm_timesfm::infer::burn::BurnTimesFMModel;
+
+    let buf = zsfm_core::read_stdin_limited()?;
+    let req: serde_json::Value = serde_json::from_str(&buf).context("parse JSON input")?;
+    let contexts = zsfm_core::parse_mv_contexts(req["context"].clone())?;
+    let horizon = zsfm_core::parse_horizon(&req)?;
+
+    eprintln!("Loading Burn model from {} …", gguf_path.display());
+    let model = BurnTimesFMModel::load(gguf_path).context("load model")?;
+
+    let quantile_labels = [
+        "0.10", "0.20", "0.30", "0.40", "0.50", "0.60", "0.70", "0.80", "0.90",
+    ];
+
+    let mut fc_outputs = Vec::new();
+    let mut total_ctx = 0usize;
+    for raw_variates in &contexts {
+        anyhow::ensure!(
+            raw_variates.len() == 1,
+            "TimesFM only supports univariate forecasting (1 variate per context)"
+        );
+        let ctx = &raw_variates[0];
+        if ctx.is_empty() {
+            bail!("context series must not be empty");
+        }
+        total_ctx += ctx.len();
+        eprintln!(
+            "Running forecast (context={}, horizon={}) …",
+            ctx.len(),
+            horizon
+        );
         let outputs = model.forecast(ctx, horizon)?;
 
         let point = outputs.first().cloned().unwrap_or_default();

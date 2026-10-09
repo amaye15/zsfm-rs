@@ -25,6 +25,7 @@ members = [
     "zsfm-rs/crates/zsfm",
     "zsfm-rs/crates/zsfm-python",
     "zsfm-rs/crates/zsfm-bench",
+    "zsfm-rs/crates/zsfm-burn",
 ]
 
 [workspace.package]
@@ -32,7 +33,7 @@ version = "0.2.7"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/amaye15/zsfm-rs"
-rust-version = "1.70"
+rust-version = "1.82"
 
 [workspace.dependencies]
 # Internal crates (path + version, so `cargo publish` accepts them as real
@@ -42,6 +43,7 @@ zsfm-core = { path = "zsfm-rs/crates/zsfm-core", version = "0.2.7" }
 zsfm-gguf = { path = "zsfm-rs/crates/zsfm-gguf", version = "0.2.7" }
 zsfm-hub = { path = "zsfm-rs/crates/zsfm-hub", version = "0.2.7" }
 zsfm-nn = { path = "zsfm-rs/crates/zsfm-nn", version = "0.2.7" }
+zsfm-burn = { path = "zsfm-rs/crates/zsfm-burn", version = "0.2.7" }
 zsfm-checkpoint = { path = "zsfm-rs/crates/zsfm-checkpoint", version = "0.2.7" }
 zsfm-toto = { path = "zsfm-rs/crates/models/toto", version = "0.2.7" }
 zsfm-tabfm = { path = "zsfm-rs/crates/models/tabfm", version = "0.2.7" }
@@ -82,6 +84,7 @@ csv = "1"
 thiserror = "1"
 candle-core = "0.8"
 candle-nn = "0.8"
+burn = { version = "0.22", features = ["flex"] }
 pyo3 = { version = "0.23", features = ["extension-module"] }
 numpy = "0.23"
 ndarray = { version = "0.15", features = ["blas"] }

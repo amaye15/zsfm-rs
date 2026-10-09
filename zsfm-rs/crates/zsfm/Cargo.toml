@@ -25,6 +25,7 @@ zsfm-core.workspace = true
 zsfm-gguf.workspace = true
 zsfm-hub.workspace = true
 zsfm-checkpoint.workspace = true
+zsfm-burn.workspace = true
 zsfm-toto.workspace = true
 zsfm-tabfm.workspace = true
 zsfm-mitra.workspace = true

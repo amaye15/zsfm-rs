@@ -1,0 +1,16 @@
+[package]
+name = "zsfm-burn"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Burn-backend inference spike: shared Burn tensor ops, candle-vs-Burn parity checks, and op microbenchmarks."
+
+[dependencies]
+anyhow.workspace = true
+burn.workspace = true
+candle-core.workspace = true
+zsfm-nn.workspace = true
+
+[lib]
+path = "src/lib.rs"

@@ -141,6 +141,11 @@ pub async fn run(command: Command) -> anyhow::Result<()> {
         Command::InspectTensors { path } => crate::common::inspect_tensors(&path)?,
 
         Command::Infer { gguf, config } => {
+            if zsfm_burn::engine_from_env() == zsfm_burn::Engine::Burn {
+                anyhow::bail!(
+                    "ttm Burn engine not yet ported (see benchmark/burn_migration.md); use --engine candle"
+                );
+            }
             let buf = zsfm_core::read_stdin_limited()?;
             let req: serde_json::Value = serde_json::from_str(&buf).context("parse JSON input")?;
             let contexts = zsfm_core::parse_mv_contexts(req["context"].clone())?;

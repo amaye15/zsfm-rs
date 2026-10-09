@@ -33,6 +33,11 @@ struct Cli {
     /// extra per-tensor detail in future).
     #[arg(long, global = true)]
     verbose: bool,
+    /// Inference engine: `candle` (default) or `burn`. Burn arms return a
+    /// clear error until that model passes its parity gate in
+    /// `benchmark/burn_migration.md`. Same as setting `ZSFM_ENGINE`.
+    #[arg(long, global = true, default_value = "candle")]
+    engine: String,
     #[command(subcommand)]
     model: ModelCommand,
 }
@@ -139,6 +144,15 @@ async fn main() -> anyhow::Result<()> {
     if cli.quiet {
         // SAFETY: single-threaded startup before any async work spawns threads.
         unsafe { std::env::set_var("ZSFM_QUIET", "1") };
+    }
+    {
+        let engine = cli.engine.to_ascii_lowercase();
+        anyhow::ensure!(
+            engine == "candle" || engine == "burn",
+            "unknown --engine {engine:?}: expected candle|burn"
+        );
+        // SAFETY: single-threaded startup before any async work spawns threads.
+        unsafe { std::env::set_var("ZSFM_ENGINE", engine) };
     }
     match cli.model {
         ModelCommand::Toto { command } => toto::run(command).await,

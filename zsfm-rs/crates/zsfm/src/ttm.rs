@@ -142,9 +142,7 @@ pub async fn run(command: Command) -> anyhow::Result<()> {
 
         Command::Infer { gguf, config } => {
             if zsfm_burn::engine_from_env() == zsfm_burn::Engine::Burn {
-                anyhow::bail!(
-                    "ttm Burn engine not yet ported (see benchmark/burn_migration.md); use --engine candle"
-                );
+                return run_infer_burn(&gguf, &config).await;
             }
             let buf = zsfm_core::read_stdin_limited()?;
             let req: serde_json::Value = serde_json::from_str(&buf).context("parse JSON input")?;
@@ -190,5 +188,52 @@ pub async fn run(command: Command) -> anyhow::Result<()> {
         }
     }
 
+    Ok(())
+}
+
+async fn run_infer_burn(
+    gguf: &std::path::PathBuf,
+    config: &std::path::PathBuf,
+) -> anyhow::Result<()> {
+    use zsfm_ttm::infer::burn::BurnTtmModel;
+
+    let buf = zsfm_core::read_stdin_limited()?;
+    let req: serde_json::Value = serde_json::from_str(&buf).context("parse JSON input")?;
+    let contexts = zsfm_core::parse_mv_contexts(req["context"].clone())?;
+    let horizon = zsfm_core::parse_horizon(&req)?;
+
+    let config_str =
+        std::fs::read_to_string(config).with_context(|| format!("read {}", config.display()))?;
+    let ttm_config = TtmConfig::from_json(&config_str).context("parse config.json")?;
+    let min_ctx = ttm_config.patch_length;
+
+    eprintln!("Loading Burn model from {} …", gguf.display());
+    let model = BurnTtmModel::load(gguf, ttm_config).context("load model")?;
+
+    let mut fc_outputs = Vec::new();
+    let mut total_ctx = 0usize;
+    for raw_variates in &contexts {
+        anyhow::ensure!(
+            raw_variates.len() == 1,
+            "TTM only supports univariate forecasting (1 variate per context)"
+        );
+        let ctx = &raw_variates[0];
+        anyhow::ensure!(
+            ctx.len() >= min_ctx,
+            "context too short — need at least {min_ctx} timesteps, got {}",
+            ctx.len()
+        );
+        total_ctx += ctx.len();
+        let raw = model.forecast(ctx).context("forecast")?;
+        let point: Vec<f32> = raw.into_iter().take(horizon).collect();
+        fc_outputs.push(ForecastOutput::Univariate {
+            point,
+            quantiles: Default::default(),
+        });
+    }
+    println!(
+        "{}",
+        zsfm_core::forecast_response_json("ttm", total_ctx, horizon, fc_outputs)?
+    );
     Ok(())
 }

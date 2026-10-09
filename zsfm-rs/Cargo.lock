@@ -9829,6 +9829,7 @@ name = "zsfm-ttm"
 version = "0.2.7"
 dependencies = [
  "anyhow",
+ "burn",
  "byteorder",
  "candle-core",
  "candle-nn",
@@ -9836,6 +9837,7 @@ dependencies = [
  "safetensors 0.4.5",
  "serde",
  "serde_json",
+ "zsfm-burn",
  "zsfm-core",
  "zsfm-gguf",
  "zsfm-hub",

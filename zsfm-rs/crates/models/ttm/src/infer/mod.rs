@@ -5,6 +5,8 @@
 //!   2 decoder layers → Flatten → Linear head → inverse scale
 //! - No attention. Each "mixer layer" = PatchMixerBlock + FeatureMixerBlock.
 //! - GatedAttention: softmax(linear(x)) * x applied after each MLP.
+//!
+//! Burn port lives in [`burn`](crate::infer::burn) (`BurnTtmModel`).
 
 use std::io::{BufReader, Read, Seek};
 use std::path::{Path, PathBuf};
@@ -15,6 +17,8 @@ use candle_core::{DType, Device, Tensor};
 use zsfm_nn::{layer_norm, linear};
 
 use crate::config::TtmConfig;
+
+pub mod burn;
 
 // ---------------------------------------------------------------------------
 // Weight structs

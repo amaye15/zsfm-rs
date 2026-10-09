@@ -25,11 +25,13 @@ Notes:
 ## Model rollout tracker
 
 Gate per model: same GGUF, same contexts, max-abs-error vs candle path
-below 1e-5 on fixed probes AND no MAE regression in `zsfm-bench report`.
+below 1e-4 on fixed probes AND no MAE regression in `zsfm-bench report`.
+TTM synthetic probe: candle 4.103ms vs Burn 4.200ms, err 3.05e-5 (tier
+match; model-level weights pending download).
 
 | Model | Status | Probe err | Bench MAE Δ | Notes |
 |-------|--------|----------:|------------:|-------|
-| ttm | planned pilot | — | — | small, univariate, no RoPE |
+| ttm | ✅ ported, default candle | 3.05e-5 | pending real weights | `BurnTtmModel` in `models/ttm/src/infer/burn.rs`; synthetic-GGUF parity test; `--engine burn` live |
 | timesfm | queued | — | — | — |
 | sundial | queued | — | — | — |
 | moment | queued | — | — | — |

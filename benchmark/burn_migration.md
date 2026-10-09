@@ -33,8 +33,8 @@ match; model-level weights pending download).
 |-------|--------|----------:|------------:|-------|
 | ttm | ✅ ported, default candle | 3.05e-5 | pending real weights | `BurnTtmModel` in `models/ttm/src/infer/burn.rs`; synthetic-GGUF parity test; `--engine burn` live |
 | timesfm | ✅ ported, default candle | 1.5e-5 (attn block) | pending real weights | `BurnTimesFMModel` in `models/timesfm/src/infer/burn.rs`; rope+residual+attention parity tests; `--engine burn` live |
-| sundial | queued | — | — | — |
-| moment | queued | — | — | — |
+| sundial | ✅ ported, default candle | 3.8e-6 | pending real weights | `BurnSundialModel` in `models/sundial/src/infer/burn.rs`; Llama RoPE + flow ODE; `--engine burn` live |
+| moment | ✅ ported, default candle | 0.00e0 | pending real weights | `BurnMomentModel` in `models/moment/src/infer/burn.rs`; T5 rel-bias + gated-GELU; `--engine burn` live |
 | chronos | queued | — | — | RoPE family |
 | toto | queued | — | — | RoPE + F64 paths |
 | moirai | queued | — | — | — |

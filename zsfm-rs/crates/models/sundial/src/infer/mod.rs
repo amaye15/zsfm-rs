@@ -1,3 +1,4 @@
+pub mod burn;
 pub mod rope;
 
 use anyhow::Result;

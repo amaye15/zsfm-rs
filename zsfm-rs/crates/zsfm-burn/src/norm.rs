@@ -25,6 +25,37 @@ pub fn burn_softmax_last_dim(x: Tensor<2>) -> Tensor<2> {
     activation::softmax(x, 1)
 }
 
+/// RMSNorm over the last dim for rank-D input. Matches `zsfm_nn::rms_norm`
+/// applied to higher-rank tensors.
+pub fn burn_rms_norm_nd<const D: usize>(x: Tensor<D>, w: Tensor<1>, eps: f32) -> Tensor<D> {
+    let dims = x.dims();
+    let last = dims[D - 1];
+    let lead: usize = dims[..D - 1].iter().product();
+    burn_rms_norm(x.reshape([lead, last]), w, eps).reshape(dims)
+}
+
+/// LayerNorm over the last dim for rank-D input. Matches `zsfm_nn::layer_norm`.
+pub fn burn_layer_norm_nd<const D: usize>(
+    x: Tensor<D>,
+    w: Tensor<1>,
+    b: Tensor<1>,
+    eps: f32,
+) -> Tensor<D> {
+    let dims = x.dims();
+    let last = dims[D - 1];
+    let lead: usize = dims[..D - 1].iter().product();
+    burn_layer_norm(x.reshape([lead, last]), w, b, eps).reshape(dims)
+}
+
+/// LayerNorm without affine parameters over the last dim (2D).
+pub fn burn_layer_norm_no_affine(x: Tensor<2>, eps: f32) -> Tensor<2> {
+    let mean = x.clone().mean_dim(1);
+    let centered = x - mean;
+    let var = centered.clone().square().mean_dim(1);
+    let std = (var.add_scalar(eps)).sqrt();
+    centered / std
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

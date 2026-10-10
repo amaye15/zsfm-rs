@@ -42,6 +42,8 @@ use candle_core::{DType, Device, Tensor};
 
 use crate::config::TabPfnConfig;
 
+pub mod burn;
+
 /// `nn.RMSNorm`'s default `eps` when unset: the input dtype's machine epsilon. This checkpoint's
 /// compute dtype is F32, so `torch.finfo(torch.float32).eps`.
 const RMS_EPS: f64 = 1.192_092_9e-7;

@@ -6,6 +6,8 @@ use std::sync::Mutex;
 use anyhow::{Context, Result};
 use candle_core::quantized::gguf_file;
 use candle_core::{DType, Device, Tensor};
+pub mod burn;
+
 use candle_nn::ops;
 use simdeez::prelude::*;
 

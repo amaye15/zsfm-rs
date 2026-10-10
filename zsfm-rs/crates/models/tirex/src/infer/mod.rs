@@ -1,6 +1,8 @@
 use std::io::{BufReader, Read, Seek};
 use std::path::Path;
 
+pub mod burn;
+
 use anyhow::{Context, Result};
 use candle_core::quantized::gguf_file;
 use candle_core::{DType, Device, Tensor};

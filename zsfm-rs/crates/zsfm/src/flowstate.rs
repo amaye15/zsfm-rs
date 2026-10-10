@@ -148,6 +148,9 @@ pub async fn run(command: Command) -> anyhow::Result<()> {
         Command::InspectTensors { path } => crate::common::inspect_tensors(&path)?,
 
         Command::Infer { gguf, config } => {
+            if zsfm_burn::engine_from_env() == zsfm_burn::Engine::Burn {
+                return run_infer_burn(&gguf, &config).await;
+            }
             let buf = zsfm_core::read_stdin_limited()?;
             let req: serde_json::Value = serde_json::from_str(&buf).context("parse JSON input")?;
 
@@ -198,5 +201,60 @@ pub async fn run(command: Command) -> anyhow::Result<()> {
         }
     }
 
+    Ok(())
+}
+
+async fn run_infer_burn(
+    gguf: &std::path::PathBuf,
+    config: &std::path::PathBuf,
+) -> anyhow::Result<()> {
+    use zsfm_flowstate::infer::burn::BurnFlowStateModel;
+
+    let buf = zsfm_core::read_stdin_limited()?;
+    let req: serde_json::Value = serde_json::from_str(&buf).context("parse JSON input")?;
+
+    let contexts = zsfm_core::parse_mv_contexts(req["context"].clone())?;
+    let horizon = zsfm_core::parse_horizon(&req)?;
+
+    let config_str =
+        std::fs::read_to_string(config).with_context(|| format!("read {}", config.display()))?;
+    let fs_config = FlowStateConfig::from_json(&config_str).context("parse config.json")?;
+
+    eprintln!("Loading Burn model from {} …", gguf.display());
+    let model =
+        BurnFlowStateModel::load(gguf, zsfm_flowstate::infer::InferConfig::from(&fs_config))
+            .context("load model")?;
+    let quantile_levels = model.quantiles().to_vec();
+    let median_idx = model.median_index();
+
+    let mut fc_outputs = Vec::new();
+    let mut total_ctx: usize = 0;
+    for raw_variates in &contexts {
+        anyhow::ensure!(
+            raw_variates.len() == 1,
+            "FlowState only supports univariate forecasting (1 variate per context)"
+        );
+        let ctx = &raw_variates[0];
+        anyhow::ensure!(!ctx.is_empty(), "context series must not be empty");
+        total_ctx += ctx.len();
+
+        eprintln!(
+            "Running forecast ({} context steps → {horizon} future steps) …",
+            ctx.len()
+        );
+        let quantile_mat = model.forecast(ctx, horizon).context("forecast")?;
+        let qmat: zsfm_core::QuantileMatrix =
+            quantile_mat.into_iter().map(|row| vec![row]).collect();
+        fc_outputs.push(zsfm_core::quantile_matrix_to_output(
+            &qmat,
+            &quantile_levels,
+            median_idx,
+        ));
+    }
+
+    println!(
+        "{}",
+        zsfm_core::forecast_response_json("flowstate", total_ctx, horizon, fc_outputs)?
+    );
     Ok(())
 }

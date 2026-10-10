@@ -39,14 +39,14 @@ match; model-level weights pending download).
 | toto | queued | — | — | RoPE + F64 paths |
 | moirai | ✅ ported, default candle | 9.5e-7 | pending real weights | `BurnMoiraiModel`; QK-norm + split RoPE + vbias; `--engine burn` live |
 | moirai2 | queued | — | — | partial RoPE |
-| lag_llama | queued | — | — | keep simdeez fast path |
-| flowstate | queued | — | — | keep simdeez fast path |
-| tirex | queued | — | — | keep simdeez fast path |
-| mitra | queued | — | — | tabular attention |
-| tabdpt | queued | — | — | — |
-| tabicl | queued | — | — | — |
-| tabpfn | queued | — | — | — |
-| tabfm | queued | — | — | ensemble |
+| lag_llama | ✅ ported, default candle | 0.00e0 | pending real weights | Burn prefill + verbatim host decode; `--engine burn` live |
+| flowstate | ✅ ported, default candle | 0.00e0 | pending real weights | Burn projections + verbatim SSM scan; `--engine burn` live |
+| tirex | ✅ ported, default candle | 0.00e0 | pending real weights | Burn residual/FFN + verbatim sLSTM; `--engine burn` live |
+| mitra | ✅ ported, default candle | 4.8e-7 | pending real weights | `BurnMitraModel`; dual row/feat attention; `--engine burn` live |
+| tabdpt | ✅ ported, default candle | 0.00e0 | pending real weights | `BurnTabDptModel`; gated attention + binned head; `--engine burn` live |
+| tabicl | ✅ ported, default candle | 3.0e-8 | pending real weights | `BurnTabIclModel`; ISAB + SSMax + shared Llama RoPE; `--engine burn` live |
+| tabpfn | ✅ ported, default candle | 8.6e-5 | pending real weights | `BurnTabPfnModel`; GQA test quirk + log decoder; `--engine burn` live |
+| tabfm | ✅ ported, default candle | 2.9e-4 | pending real weights | `BurnTabFMModel` single-table; ensemble stays candle; `--engine burn` live |
 
 ## Engine selection
 
@@ -54,3 +54,10 @@ match; model-level weights pending download).
 flips after passing its gate). `--backend` selection arrives with Phase 5;
 until then Burn runs Flex CPU. TTM already dispatches on the flag (Burn arm
 errors clearly until the Phase 2 port lands).
+
+## Follow-up
+- Python bindings (`zsfm-python`) still wrap the candle models. The `Engine`
+  seam (`zsfm_burn::Engine`, `ZSFM_ENGINE`) is ready; each pyclass needs an
+  `engine` parameter dispatching to the Burn model.
+- Real-weights `zsfm-bench` comparison per model (needs downloads).
+- GPU backends (Wgpu/Metal/Cuda) + Fusion + true Q8 inference.

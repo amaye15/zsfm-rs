@@ -23,6 +23,8 @@ use candle_core::{DType, Device, Tensor};
 
 use crate::config::{MitraConfig, Task};
 
+pub mod burn;
+
 // ---------------------------------------------------------------------------
 // Weight structs
 // ---------------------------------------------------------------------------

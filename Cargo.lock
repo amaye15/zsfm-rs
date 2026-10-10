@@ -9521,6 +9521,7 @@ name = "zsfm-flowstate"
 version = "0.2.7"
 dependencies = [
  "anyhow",
+ "burn",
  "byteorder",
  "candle-core",
  "candle-nn",
@@ -9529,6 +9530,7 @@ dependencies = [
  "serde",
  "serde_json",
  "simdeez",
+ "zsfm-burn",
  "zsfm-core",
  "zsfm-gguf",
  "zsfm-hub",
@@ -9567,6 +9569,7 @@ name = "zsfm-lag-llama"
 version = "0.2.7"
 dependencies = [
  "anyhow",
+ "burn",
  "byteorder",
  "candle-core",
  "candle-nn",
@@ -9575,6 +9578,7 @@ dependencies = [
  "serde",
  "serde_json",
  "simdeez",
+ "zsfm-burn",
  "zsfm-core",
  "zsfm-gguf",
  "zsfm-hub",
@@ -9586,6 +9590,7 @@ name = "zsfm-mitra"
 version = "0.2.7"
 dependencies = [
  "anyhow",
+ "burn",
  "byteorder",
  "candle-core",
  "candle-nn",
@@ -9593,6 +9598,7 @@ dependencies = [
  "safetensors 0.4.5",
  "serde",
  "serde_json",
+ "zsfm-burn",
  "zsfm-core",
  "zsfm-gguf",
  "zsfm-hub",
@@ -9729,6 +9735,7 @@ name = "zsfm-tabdpt"
 version = "0.2.7"
 dependencies = [
  "anyhow",
+ "burn",
  "byteorder",
  "candle-core",
  "candle-nn",
@@ -9736,6 +9743,7 @@ dependencies = [
  "safetensors 0.4.5",
  "serde",
  "serde_json",
+ "zsfm-burn",
  "zsfm-core",
  "zsfm-gguf",
  "zsfm-hub",
@@ -9747,6 +9755,7 @@ name = "zsfm-tabfm"
 version = "0.2.7"
 dependencies = [
  "anyhow",
+ "burn",
  "byteorder",
  "candle-core",
  "candle-nn",
@@ -9755,6 +9764,7 @@ dependencies = [
  "safetensors 0.4.5",
  "serde",
  "serde_json",
+ "zsfm-burn",
  "zsfm-core",
  "zsfm-gguf",
  "zsfm-hub",
@@ -9766,6 +9776,7 @@ name = "zsfm-tabicl"
 version = "0.2.7"
 dependencies = [
  "anyhow",
+ "burn",
  "byteorder",
  "candle-core",
  "candle-nn",
@@ -9773,6 +9784,7 @@ dependencies = [
  "safetensors 0.4.5",
  "serde",
  "serde_json",
+ "zsfm-burn",
  "zsfm-core",
  "zsfm-gguf",
  "zsfm-hub",
@@ -9784,6 +9796,7 @@ name = "zsfm-tabpfn"
 version = "0.2.7"
 dependencies = [
  "anyhow",
+ "burn",
  "byteorder",
  "candle-core",
  "candle-nn",
@@ -9791,6 +9804,7 @@ dependencies = [
  "safetensors 0.4.5",
  "serde",
  "serde_json",
+ "zsfm-burn",
  "zsfm-core",
  "zsfm-gguf",
  "zsfm-hub",
@@ -9822,6 +9836,7 @@ name = "zsfm-tirex"
 version = "0.2.7"
 dependencies = [
  "anyhow",
+ "burn",
  "byteorder",
  "candle-core",
  "candle-nn",
@@ -9829,6 +9844,7 @@ dependencies = [
  "serde",
  "serde_json",
  "simdeez",
+ "zsfm-burn",
  "zsfm-core",
  "zsfm-gguf",
  "zsfm-hub",

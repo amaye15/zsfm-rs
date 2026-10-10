@@ -14,6 +14,8 @@ use candle_core::quantized::gguf_file;
 use candle_core::{DType, Device, Tensor, D};
 use simdeez::prelude::*;
 
+pub mod burn;
+
 use crate::config::LagLlamaConfig;
 
 // ---------------------------------------------------------------------------

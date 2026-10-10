@@ -30,6 +30,8 @@
 use std::io::{Read, Seek};
 use std::path::{Path, PathBuf};
 
+pub mod burn;
+
 use anyhow::{Context, Result};
 use candle_core::quantized::gguf_file;
 use candle_core::{DType, Device, Tensor, D};

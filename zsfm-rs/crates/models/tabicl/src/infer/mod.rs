@@ -28,6 +28,8 @@ use candle_core::{DType, Device, Tensor};
 
 use crate::config::TabIclConfig;
 
+pub mod burn;
+
 const LN_EPS: f64 = 1e-5;
 
 // ---------------------------------------------------------------------------

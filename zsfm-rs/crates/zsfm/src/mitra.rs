@@ -195,6 +195,9 @@ pub async fn run(command: Command) -> anyhow::Result<()> {
         Command::InspectTensors { path } => crate::common::inspect_tensors(&path)?,
 
         Command::Infer { gguf, task } => {
+            if zsfm_burn::engine_from_env() == zsfm_burn::Engine::Burn {
+                return run_infer_burn(&gguf, &task).await;
+            }
             let buf = zsfm_core::read_stdin_limited()?;
             let req: serde_json::Value = serde_json::from_str(&buf).context("parse JSON input")?;
 
@@ -281,5 +284,92 @@ pub async fn run(command: Command) -> anyhow::Result<()> {
         }
     }
 
+    Ok(())
+}
+
+async fn run_infer_burn(gguf: &std::path::PathBuf, task: &TaskArg) -> anyhow::Result<()> {
+    use zsfm_mitra::infer::burn::BurnMitraModel;
+
+    let buf = zsfm_core::read_stdin_limited()?;
+    let req: serde_json::Value = serde_json::from_str(&buf).context("parse JSON input")?;
+
+    let x_support = zsfm_core::parse_matrix(&req["x_support"])?;
+    let x_query = zsfm_core::parse_matrix(&req["x_query"])?;
+
+    let config = match task {
+        TaskArg::Classification => MitraConfig::classifier(),
+        TaskArg::Regression => MitraConfig::regressor(),
+    };
+
+    eprintln!("Loading Burn model from {} …", gguf.display());
+    let model = BurnMitraModel::load(gguf, config).context("load model")?;
+
+    match task {
+        TaskArg::Classification => {
+            let y_support: Vec<usize> = serde_json::from_value(req["y_support"].clone())
+                .context("expected a 1D JSON integer array for `y_support`")?;
+            let n_classes = req
+                .get("n_classes")
+                .and_then(|v| v.as_u64())
+                .unwrap_or_else(|| {
+                    y_support
+                        .iter()
+                        .copied()
+                        .max()
+                        .map(|m| m as u64 + 1)
+                        .unwrap_or(1)
+                }) as usize;
+
+            eprintln!(
+                "Running classification ({} support / {} query rows, {n_classes} classes) …",
+                x_support.len(),
+                x_query.len()
+            );
+            let logits = model
+                .predict_classification(&x_support, &y_support, &x_query, n_classes)
+                .context("predict")?;
+            let probabilities: Vec<Vec<f32>> =
+                logits.iter().map(|row| zsfm_core::softmax(row)).collect();
+
+            #[derive(Serialize)]
+            struct Resp<'a> {
+                task: &'static str,
+                logits: &'a [Vec<f32>],
+                probabilities: Vec<Vec<f32>>,
+            }
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&Resp {
+                    task: "classification",
+                    logits: &logits,
+                    probabilities
+                })?
+            );
+        }
+        TaskArg::Regression => {
+            let y_support: Vec<f32> = serde_json::from_value(req["y_support"].clone())
+                .context("expected a 1D JSON numeric array for `y_support`")?;
+            eprintln!(
+                "Running regression ({} support / {} query rows) …",
+                x_support.len(),
+                x_query.len()
+            );
+            let predictions = model
+                .predict_regression(&x_support, &y_support, &x_query)
+                .context("predict")?;
+            #[derive(Serialize)]
+            struct Resp {
+                task: &'static str,
+                predictions: Vec<f32>,
+            }
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&Resp {
+                    task: "regression",
+                    predictions
+                })?
+            );
+        }
+    }
     Ok(())
 }

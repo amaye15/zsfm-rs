@@ -135,6 +135,9 @@ pub async fn run(command: Command) -> anyhow::Result<()> {
         Command::InspectTensors { path } => crate::common::inspect_tensors(&path)?,
 
         Command::Infer { gguf } => {
+            if zsfm_burn::engine_from_env() == zsfm_burn::Engine::Burn {
+                return run_infer_burn(&gguf).await;
+            }
             let buf = zsfm_core::read_stdin_limited()?;
             let req: serde_json::Value = serde_json::from_str(&buf).context("parse JSON input")?;
             let contexts = zsfm_core::parse_mv_contexts(req["context"].clone())?;
@@ -167,5 +170,40 @@ pub async fn run(command: Command) -> anyhow::Result<()> {
         }
     }
 
+    Ok(())
+}
+
+async fn run_infer_burn(gguf: &std::path::PathBuf) -> anyhow::Result<()> {
+    use zsfm_lag_llama::infer::burn::BurnLagLlamaModel;
+
+    let buf = zsfm_core::read_stdin_limited()?;
+    let req: serde_json::Value = serde_json::from_str(&buf).context("parse JSON input")?;
+    let contexts = zsfm_core::parse_mv_contexts(req["context"].clone())?;
+    let horizon = zsfm_core::parse_horizon(&req)?;
+    let config = LagLlamaConfig::default_from_ckpt();
+
+    eprintln!("Loading Burn model from {} …", gguf.display());
+    let model = BurnLagLlamaModel::load(gguf, config).context("load model")?;
+
+    let mut fc_outputs = Vec::new();
+    let mut total_ctx = 0usize;
+    for raw_variates in &contexts {
+        anyhow::ensure!(
+            raw_variates.len() == 1,
+            "Lag-Llama only supports univariate forecasting (1 variate per context)"
+        );
+        let ctx = &raw_variates[0];
+        anyhow::ensure!(!ctx.is_empty(), "context series must not be empty");
+        total_ctx += ctx.len();
+        let point = model.forecast(ctx, horizon).context("forecast")?;
+        fc_outputs.push(ForecastOutput::Univariate {
+            point,
+            quantiles: Default::default(),
+        });
+    }
+    println!(
+        "{}",
+        zsfm_core::forecast_response_json("lag-llama", total_ctx, horizon, fc_outputs)?
+    );
     Ok(())
 }

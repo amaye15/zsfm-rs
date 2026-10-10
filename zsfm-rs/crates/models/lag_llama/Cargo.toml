@@ -15,11 +15,13 @@ byteorder.workspace = true
 indicatif.workspace = true
 candle-core.workspace = true
 candle-nn.workspace = true
+burn.workspace = true
 simdeez.workspace = true
 zsfm-core.workspace = true
 zsfm-nn.workspace = true
 zsfm-gguf.workspace = true
 zsfm-hub.workspace = true
+zsfm-burn.workspace = true
 
 [lib]
 path = "src/lib.rs"
